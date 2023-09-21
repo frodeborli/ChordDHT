@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "ChordDHT": {
+      "commandName": "Project",
+      "commandLineArgs": "serve 8080"
+    }
+  }
+}

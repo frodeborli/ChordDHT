@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.7.34018.315
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChordDHT", "ChordDHT\ChordDHT.csproj", "{04FFC2E9-D777-4CB5-86BF-7ABB4D24B441}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{04FFC2E9-D777-4CB5-86BF-7ABB4D24B441}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{04FFC2E9-D777-4CB5-86BF-7ABB4D24B441}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{04FFC2E9-D777-4CB5-86BF-7ABB4D24B441}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{04FFC2E9-D777-4CB5-86BF-7ABB4D24B441}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {EB97456E-90D1-47A8-AA28-265D823E2471}
+	EndGlobalSection
+EndGlobal
