@@ -29,6 +29,17 @@ namespace ChordDHT.Util
             return false;
         }
 
+        public async Task<bool> HandleRequestAsync(HttpListenerContext context, RequestVariables variables)
+        {
+            foreach (Route route in routes)
+            {
+                if (await route.HandleRequestAsync(context, variables))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
     }
 
 }

@@ -16,5 +16,6 @@ namespace ChordDHT.Util
          * return false.
          */
         public bool handleRequest(HttpListenerContext context, RequestVariables variables);
+        public Task<bool> HandleRequestAsync(HttpListenerContext context, RequestVariables variables);
     }
 }

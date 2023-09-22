@@ -96,5 +96,26 @@ namespace ChordDHT.Util
             return this.requestHandler.handleRequest(context, vars);
         }
 
+        public async Task<bool> HandleRequestAsync(HttpListenerContext context, RequestVariables variables)
+        {
+            if (context.Request.Url == null)
+            {
+                return false;
+            }
+            var match = this.pattern.Match(context.Request.Url.AbsolutePath);
+            if (!match.Success)
+            {
+                return false;
+            }
+            var vars = new RequestVariables();
+
+            foreach (string groupName in this.pattern.GetGroupNames())
+            {
+                if (int.TryParse(groupName, out _)) continue; // Skip numeric group names
+                vars[groupName] = match.Groups[groupName].Value;
+            }
+
+            return await requestHandler.HandleRequestAsync(context, vars);
+        }
     }
 }

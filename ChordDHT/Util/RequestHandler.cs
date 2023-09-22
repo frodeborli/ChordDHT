@@ -50,6 +50,11 @@ namespace ChordDHT.Util
             return (this.listener)(context, variables);
         }
 
+        public async Task<bool> HandleRequestAsync(HttpListenerContext context, RequestVariables variables)
+        {
+            return await Task.Run(() => (this.listener)(context, variables));
+        }
+
         protected bool sendJsonResponse(HttpListenerContext context, object? result)
         {
             context.Response.ContentType = "application/json";
