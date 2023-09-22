@@ -11,15 +11,16 @@ class Program
     static void Main(string[] args)
     {
         if (args.Length == 0) {
-            Console.WriteLine("Arguments: chord serve <port> [node_ip:node_port]");
+            Console.WriteLine("Arguments: chord serve <hostname> <port> [node_ip:node_port]");
             return;
         }
 
         switch (args[0])
         {
             case "serve":
-                var port = int.Parse(args[1]);
-                serve(port);
+                var hostname = args[1];
+                var port = int.Parse(args[2]);
+                serve(hostname, port);
                 break;
         }
     }
@@ -29,12 +30,13 @@ class Program
         return Chord.DefaultHashFunction(key);
     }
 
-    static void serve(int port)
+    static void serve(string hostname, int port)
     {
         Router router = new Router();
-
         router.addRoute(new Route("GET", @"^/storage/neighbors$", getStorageNeighbors));
         router.addRoute(new Route("GET", @"^/storage/(?<key>\w+)$", getStorageKey));
+
+        chord = new Chord($"{hostname}:{port}");
 
 
         HttpListener listener = new HttpListener();
@@ -57,9 +59,33 @@ class Program
          * Returns HTTP code 200, with value, if <key> exists in the DHT.
          * Returns HTTP code 404, if <key> does not exist in the DHT.
          */
-        static object getStorageKey(HttpListenerContext ctx, RequestVariables values)
+        static async Task<object> getStorageKey(HttpListenerContext ctx, RequestVariables values)
         {
-            return values["key"];
+            var node = chord.lookup(values["key"]);
+
+            if (node == chord.nodeName)
+            {
+                // The key belongs to this node, so return it or null if we don't have it
+                return map.ContainsKey(values["key"]) ? map[values["key"]] : null
+            } else
+            {
+                // The key belongs to another node (probably the node named in the variable `node`)
+                HttpClient client = new HttpClient();
+                var response = await client.GetAsync($"http://{node}/storage/{values["key"]}");
+                if (response != null)
+                {
+                    return response.Content.ReadAsStringAsync();
+                }
+
+            }
+
+            var value = new 
+                {
+                    keyIsLocal = node == chord.nodeName,
+                    node = node,
+                    value = map.ContainsKey(values["key"]) ? map[values["key"]] : null
+                };
+
             string responseString = "Hello, World!";
             byte[] buffer = System.Text.Encoding.UTF8.GetBytes(responseString);
             ctx.Response.ContentLength64 = buffer.Length;

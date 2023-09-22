@@ -2,7 +2,7 @@
   "profiles": {
     "ChordDHT": {
       "commandName": "Project",
-      "commandLineArgs": "serve 8080"
+      "commandLineArgs": "serve node1 8080"
     }
   }
 }
