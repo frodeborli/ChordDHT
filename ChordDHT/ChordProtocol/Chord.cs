@@ -14,74 +14,72 @@ namespace ChordDHT.ChordProtocol
     public class Chord : IChord
     {
         // The current node name
-        public string nodeName;
+        public string NodeName;
 
         // The largest hash stored at this node
-        public ulong nodeId;
+        public ulong NodeId;
 
         // The smallest hash stored at this node
-        public ulong start;
+        public ulong Start;
 
-        protected int fingerCount;
-        protected float baseFactor;
-        protected string[] fingers;
-        protected Func<string, ulong> hashFunction;
-        protected List<string> knownNodes;
-        protected string successorNode;
-        protected string predecessorNode;
+        protected int FingerCount;
+        public string[] Fingers { get; private set; }
+        protected Func<string, ulong> HashFunction;
+        public List<string> KnownNodes { get; protected set; }
+        public string SuccessorNode { get; private set; }
+        public string PredecessorNode { get; private set; }
 
         public Chord(string nodeName, Func<string, ulong> hashFunction = null)
         {
-            this.nodeName = nodeName;
-            nodeId = (hashFunction ?? DefaultHashFunction)(nodeName);
-            start = this.nodeId + 1;
-            predecessorNode = nodeName;
-            successorNode = nodeName;
+            this.NodeName = nodeName;
+            NodeId = (hashFunction ?? DefaultHashFunction)(nodeName);
+            Start = this.NodeId + 1;
+            PredecessorNode = nodeName;
+            SuccessorNode = nodeName;
 
             if (hashFunction == null)
             {
-                this.hashFunction = DefaultHashFunction;
+                this.HashFunction = DefaultHashFunction;
             } else
             {
-                this.hashFunction = hashFunction;
+                this.HashFunction = hashFunction;
             }
 
-            this.fingerCount = (int)Math.Log2(ulong.MaxValue);
-            this.fingers = new string[fingerCount];
-            this.knownNodes = new List<string> { this.nodeName };
+            this.FingerCount = (int)Math.Log2(ulong.MaxValue);
+            this.Fingers = new string[FingerCount];
+            this.KnownNodes = new List<string> { this.NodeName };
             this.updateFingersTable();
-            for (int i = 0; i < fingers.Length; i++) {
-                var finger = fingers[i];
-                Console.WriteLine($"Finger {i} '{finger}'");
+            for (int i = 0; i < Fingers.Length; i++) {
+                var finger = Fingers[i];
             }
         }
 
-        public void addNode(string nodeName)
+        public void AddNode(string nodeName)
         {
-            if (this.knownNodes.IndexOf(nodeName) >= 0)
+            if (this.KnownNodes.IndexOf(nodeName) >= 0)
             {
                 // Ignore duplicate add
                 return;
             }
-            this.knownNodes.Add(nodeName);
+            this.KnownNodes.Add(nodeName);
             this.updateFingersTable();
         }
 
         public void removeNode(string nodeName)
         {
-            if (this.knownNodes.IndexOf(nodeName) == -1)
+            if (this.KnownNodes.IndexOf(nodeName) == -1)
             {
                 // Ignore nodes that don't exist
                 return;
             }
-            this.knownNodes.Remove(nodeName);
+            this.KnownNodes.Remove(nodeName);
             this.updateFingersTable();
         }
 
         protected void updateFingersTable()
         {
             // Ensure known nodes is sorted after their node position
-            knownNodes.Sort((a, b) =>
+            KnownNodes.Sort((a, b) =>
             {
                 var ah = hash(a);
                 var bh = hash(b);
@@ -94,21 +92,21 @@ namespace ChordDHT.ChordProtocol
             });
 
             // find my predecessor
-            var predecessorIndex = wrap(knownNodes.IndexOf(this.nodeName) - 1, knownNodes.Count);
-            predecessorNode = knownNodes[predecessorIndex];
-            start = hash(predecessorNode) + 1;
+            var predecessorIndex = wrap(KnownNodes.IndexOf(this.NodeName) - 1, KnownNodes.Count);
+            PredecessorNode = KnownNodes[predecessorIndex];
+            Start = hash(PredecessorNode) + 1;
 
             ulong fingerOffset = 1;
             int nextNodeToUpdate = 0;
             // Assign each node to the correct finger O(n^2) where n = number of fingers
-            for (uint i = 0; i < fingers.Length; i++)
+            for (uint i = 0; i < Fingers.Length; i++)
             {
-                var startValue = this.nodeId + fingerOffset;
+                var startValue = this.NodeId + fingerOffset;
                 var nextValue = startValue + fingerOffset - 1;
                 fingerOffset *= 2;
-                for (int j = 0; j < knownNodes.Count; j++)
+                for (int j = 0; j < KnownNodes.Count; j++)
                 {
-                    if (inside(hash(knownNodes[j]), startValue, nextValue))
+                    if (inside(hash(KnownNodes[j]), startValue, nextValue))
                     {
                         // The node belongs to finger j, but we'll update all fingers from
                         // `nextNodeToUpdate` to `j`.
@@ -116,9 +114,9 @@ namespace ChordDHT.ChordProtocol
                         {
                             if (nextNodeToUpdate == 0)
                             {
-                                successorNode = knownNodes[j];
+                                SuccessorNode = KnownNodes[j];
                             }
-                            fingers[nextNodeToUpdate++] = knownNodes[j];
+                            Fingers[nextNodeToUpdate++] = KnownNodes[j];
                         }
                         startValue = nextValue + 1;
                         break;
@@ -156,28 +154,28 @@ namespace ChordDHT.ChordProtocol
             ulong distance;
 
             // Check if this key belongs to me
-            if (inside(keyHash, this.start, this.nodeId))
+            if (inside(keyHash, this.Start, this.NodeId))
             {
-                return this.nodeName;
+                return this.NodeName;
             }
 
             // Handle wrapping of node ids
-            if (keyHash > this.nodeId)
+            if (keyHash > this.NodeId)
             {
-                distance = keyHash - this.nodeId;
+                distance = keyHash - this.NodeId;
             }
             else
             {
-                distance = (ulong.MaxValue - this.nodeId) + keyHash + 1;
+                distance = (ulong.MaxValue - this.NodeId) + keyHash + 1;
             }
 
             int fingerIndex = (int)Math.Floor(Math.Log2(distance));
-            return fingers[Math.Min(fingerIndex, fingers.Length - 1)];
+            return Fingers[Math.Min(fingerIndex, Fingers.Length - 1)];
         }
 
         protected ulong hash(string key)
         {
-            return (this.hashFunction)(key);
+            return (this.HashFunction)(key);
         }
 
         protected int wrap(int value, int max)

@@ -15,6 +15,8 @@ namespace ChordDHT.Util
          * and if the function does not handle the response it should
          * return false.
          */
-        public bool handleRequest(HttpListenerContext context, RequestVariables variables);
+        public bool HandleRequest(HttpListenerContext context, RequestVariables? variables=null);
+
+        //public Task<bool> HandleRequestAsync(Task<HttpListenerContext> context, RequestVariables variables);)
     }
 }

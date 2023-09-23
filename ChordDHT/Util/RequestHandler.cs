@@ -11,47 +11,35 @@ namespace ChordDHT.Util
 {
     public class RequestHandler : IRequestHandler
     {
-        protected Func<HttpListenerContext, RequestVariables, bool> listener;
+        protected Func<HttpListenerContext, RequestVariables?, bool> listener;
 
-
-        public RequestHandler(Func<HttpListenerContext, RequestVariables, bool> handlerFunction)
+        public RequestHandler(Func<HttpListenerContext, RequestVariables?, bool> handlerFunction)
         {
             this.listener = handlerFunction;
         }
 
-        public RequestHandler(Func<HttpListenerContext, bool> handlerFunction)
+        public RequestHandler(Func<HttpListenerContext, RequestVariables?, Task> handlerFunction)
         {
             this.listener = (context, requestVariables) =>
             {
-                return handlerFunction(context);
+                Task.Run(() => handlerFunction(context, requestVariables));
+                return true;
             };
         }
 
-        public RequestHandler(Func<HttpListenerContext, RequestVariables, object?> handlerFunction)
-        {
-            this.listener = (context, requestVariables) =>
-            {
-                object? result = handlerFunction(context, requestVariables);
-                return sendJsonResponse(context, result);
-            };
-        }
 
-        public RequestHandler(Func<HttpListenerContext, object?> handlerFunction)
-        {
-            this.listener = (context, requestVariables) =>
-            {
-                object? result = handlerFunction(context);
-                return sendJsonResponse(context, result);
-            };
-        }
-
-        public bool handleRequest(HttpListenerContext context, RequestVariables variables)
+        public bool HandleRequest(HttpListenerContext context, RequestVariables? variables)
         {
             return (this.listener)(context, variables);
         }
 
-        protected bool sendJsonResponse(HttpListenerContext context, object? result)
+
+        protected bool SendJsonResponse(HttpListenerContext context, object? result)
         {
+            if (!context.Response.OutputStream.CanWrite)
+            {
+                throw new InvalidOperationException("Response is not writable");
+            }
             context.Response.ContentType = "application/json";
             string? response = null;
 
@@ -86,9 +74,9 @@ namespace ChordDHT.Util
                         {
                             response = JsonSerializer.Serialize(result);
                         }
-                        catch (JsonException)
+                        catch (NotSupportedException)
                         {
-
+                            response = JsonSerializer.Serialize($"Unable to serialize value {result}");
                         };
                         break;
                 }
