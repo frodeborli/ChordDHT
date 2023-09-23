@@ -28,7 +28,7 @@ namespace ChordDHT.DHT
         public async Task<IStoredItem?> Get(string key)
         {
             LastRequestHops = 0;
-            var bestNode = ChordProtocol.lookup(key);
+            var bestNode = ChordProtocol.Lookup(key);
 
             var nextUrl = $"http://{bestNode}/storage/{key}";
 
@@ -72,7 +72,7 @@ namespace ChordDHT.DHT
             var requestBody = new ByteArrayContent(value.data);
             requestBody.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(value.contentType);
 
-            var bestNode = ChordProtocol.lookup(key);
+            var bestNode = ChordProtocol.Lookup(key);
             var nextUrl = $"http://{bestNode}/storage/{key}";
 
             // Find the node responsible for this key
@@ -103,7 +103,7 @@ namespace ChordDHT.DHT
         {
             LastRequestHops = 0;
 
-            var bestNode = ChordProtocol.lookup(key);
+            var bestNode = ChordProtocol.Lookup(key);
             var nextUrl = $"http://{bestNode}/storage/{key}";
 
             // Find the node responsible for this key

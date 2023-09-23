@@ -65,7 +65,7 @@ namespace ChordDHT.DHT
         private async Task GetHandler(HttpListenerContext context, RequestVariables? variables)
         {
             var key = variables["key"];
-            var bestNode = ChordProtocol.lookup(key);
+            var bestNode = ChordProtocol.Lookup(key);
             IStoredItem? result;
             if (bestNode == NodeName)
             {
@@ -103,7 +103,7 @@ namespace ChordDHT.DHT
         private async Task PutHandler(HttpListenerContext context, RequestVariables? variables)
         {
             var key = variables["key"];
-            var bestNode = ChordProtocol.lookup(key);
+            var bestNode = ChordProtocol.Lookup(key);
             if (bestNode == NodeName)
             {
                 // We should store the request body locally
@@ -146,7 +146,7 @@ namespace ChordDHT.DHT
 
         new public async Task<IStoredItem?> Get(string key)
         {
-            var bestNode = ChordProtocol.lookup(key);
+            var bestNode = ChordProtocol.Lookup(key);
             if (bestNode == NodeName)
             {
                 return await StorageBackend.Get(key);
@@ -158,7 +158,7 @@ namespace ChordDHT.DHT
 
         new public async Task<bool> Put(string key, IStoredItem value)
         {
-            var bestNode = ChordProtocol.lookup(key);
+            var bestNode = ChordProtocol.Lookup(key);
             if (bestNode == NodeName)
             {
                 return await StorageBackend.Put(key, value);
@@ -170,7 +170,7 @@ namespace ChordDHT.DHT
 
         new public async Task<bool> Remove(string key)
         {
-            var bestNode = ChordProtocol.lookup(key);
+            var bestNode = ChordProtocol.Lookup(key);
             if (bestNode == NodeName)
             {
                 return await StorageBackend.Remove(key);
