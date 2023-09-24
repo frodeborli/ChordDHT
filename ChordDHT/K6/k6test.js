@@ -27,29 +27,24 @@ export default function () {
         value: generateRandomLengthString(),
     }));
 
-    const requests = randomKeyAndValue.map(({ key, value }) => {
+    const batchRequests = randomKeyAndValue.map(({ key, value }) => {
         const location = randomLocation();
-        const putRequest = http.put(`http://${location}/storage/${key}`, value, { headers: { 'Content-Type': 'plain/text' } });
-        const getRequest = http.get(`http://${location}/storage/${key}`, { headers: { 'Content-Type': 'application/json' } });
+        return [
+            { method: 'PUT', url: `http://${location}/storage/${key}`, body: value, params: { headers: { 'Content-Type': 'plain/text' } } },
+            { method: 'GET', url: `http://${location}/storage/${key}`, params: { headers: { 'Content-Type': 'application/json' } } }
+        ];
+    }).flat();
 
-        return Promise.all([putRequest, getRequest]);
-    });
+    const responses = http.batch(batchRequests);
 
-    const results = await Promise.all(requests);
-
-    const resultsPut = results.map(([putResult, _]) => putResult);
-    const resultsGet = results.map(([_, getResult]) => getResult);
-
-    resultsPut.forEach((res, i) => {
-        check(res, {
-            'status is 200': (r) => r.status === 200,
+    randomKeyAndValue.forEach(({ value }, i) => {
+        check(responses[i * 2], {
+            'PUT status is 200': (r) => r.status === 200,
         });
-    });
 
-    resultsGet.forEach((res, i) => {
-        check(res, {
-            'status is 200': (r) => r.status === 200,
-            'body is correct': (r) => r.body === randomKeyAndValue[i].value,
+        check(responses[i * 2 + 1], {
+            'GET status is 200': (r) => r.status === 200,
+            'body is correct': (r) => r.body === value,
         });
     });
 }
