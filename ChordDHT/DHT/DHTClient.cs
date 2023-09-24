@@ -24,7 +24,6 @@ namespace ChordDHT.DHT
                 AllowAutoRedirect = false
             };
             HttpClient = new HttpClient(HttpClientHandler);
-            HttpClient.DefaultRequestHeaders.ConnectionClose = true;
             HttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(nodeName.Replace(":", "/"));
             ChordProtocol = new Chord(nodeName);
         }
