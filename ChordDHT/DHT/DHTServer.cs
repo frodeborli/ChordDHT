@@ -155,7 +155,6 @@ namespace ChordDHT.DHT
                     return item;
                 } else
                 {
-                    Console.WriteLine($"Response status code {response.StatusCode} from {url}");
                     return null;
                 }
             }
