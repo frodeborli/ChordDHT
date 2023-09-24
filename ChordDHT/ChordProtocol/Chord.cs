@@ -48,10 +48,10 @@ namespace ChordDHT.ChordProtocol
             this.FingerCount = (int)Math.Log2(ulong.MaxValue);
             this.Fingers = new string[FingerCount];
             this.KnownNodes = new List<string> { this.NodeName };
-            this.UpdateFingersTable();
             for (int i = 0; i < Fingers.Length; i++) {
                 var finger = Fingers[i];
             }
+            UpdateFingersTable();
         }
 
         public void AddNode(string nodeName)
@@ -62,7 +62,7 @@ namespace ChordDHT.ChordProtocol
                 return;
             }
             this.KnownNodes.Add(nodeName);
-            this.UpdateFingersTable();
+            UpdateFingersTable();
         }
 
         public void RemoveNode(string nodeName)
@@ -73,11 +73,12 @@ namespace ChordDHT.ChordProtocol
                 return;
             }
             this.KnownNodes.Remove(nodeName);
-            this.UpdateFingersTable();
+            UpdateFingersTable();
         }
 
         protected void UpdateFingersTable()
         {
+            Console.WriteLine($"Updating fingers table for {NodeName}");
             // Ensure known nodes is sorted after their node position
             KnownNodes.Sort((a, b) =>
             {
@@ -104,24 +105,21 @@ namespace ChordDHT.ChordProtocol
                 var startValue = this.NodeId + fingerOffset;
                 var nextValue = startValue + fingerOffset - 1;
                 fingerOffset *= 2;
+
+                // Find the nearest node
+                var distance = ulong.MaxValue;
                 for (int j = 0; j < KnownNodes.Count; j++)
                 {
-                    if (Inside(Hash(KnownNodes[j]), startValue, nextValue))
+                    var nodeHash = Hash(KnownNodes[j]);
+                    var candidateDistance = nodeHash - startValue;
+                    if (candidateDistance < distance)
                     {
-                        // The node belongs to finger j, but we'll update all fingers from
-                        // `nextNodeToUpdate` to `j`.
-                        while (nextNodeToUpdate <= i)
-                        {
-                            if (nextNodeToUpdate == 0)
-                            {
-                                SuccessorNode = KnownNodes[j];
-                            }
-                            Fingers[nextNodeToUpdate++] = KnownNodes[j];
-                        }
-                        startValue = nextValue + 1;
-                        break;
+                        distance = candidateDistance;
+                        Fingers[i] = KnownNodes[j];
                     }
                 }
+
+                SuccessorNode = Fingers[0];
             }
         }
 
@@ -131,12 +129,12 @@ namespace ChordDHT.ChordProtocol
          */
         public bool Inside(ulong hash, ulong floor, ulong ceiling)
         {
-            if (ceiling >= floor)
+            if (floor <= ceiling)
             {
-                return (hash >= floor) && (hash <= ceiling);
+                return hash >= floor && hash <= ceiling;
             } else
             {
-                return hash >= ceiling || hash <= floor;
+                return hash < ceiling || hash > floor;
             }
         }
 
@@ -173,7 +171,7 @@ namespace ChordDHT.ChordProtocol
             return Fingers[Math.Min(fingerIndex, Fingers.Length - 1)];
         }
 
-        protected ulong Hash(string key)
+        public ulong Hash(string key)
         {
             return (this.HashFunction)(key);
         }
