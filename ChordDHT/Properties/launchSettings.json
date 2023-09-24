@@ -15,6 +15,14 @@
     "Multiserve 8000-8015": {
       "commandName": "Project",
       "commandLineArgs": "multiserve localhost 8000 16"
+    },
+    "Single Node": {
+      "commandName": "Project",
+      "commandLineArgs": "serve localhost 8080 localhost:8080"
+    },
+    "Multiserve 8080 +100 nodes": {
+      "commandName": "Project",
+      "commandLineArgs": "multiserve localhost 8080 100"
     }
   }
 }

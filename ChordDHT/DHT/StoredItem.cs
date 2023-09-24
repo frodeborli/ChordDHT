@@ -10,30 +10,30 @@ namespace ChordDHT.DHT
     public class StoredItem : IStoredItem
     {
         [JsonPropertyName("content_type")]
-        public string contentType { get; private set; }
+        public string ContentType { get; private set; }
 
         [JsonPropertyName("data")]
-        public byte[] data { get; private set; }
+        public byte[] Data { get; private set; }
 
         public StoredItem(string contentType, byte[] data)
         {
-            this.contentType = contentType;
-            this.data = data;
+            this.ContentType = contentType;
+            this.Data = data;
         }
 
         public StoredItem(string data)
         {
-            this.contentType = "text/plain; charset=utf-8";
-            this.data = Encoding.UTF8.GetBytes(data);
+            this.ContentType = "text/plain; charset=utf-8";
+            this.Data = Encoding.UTF8.GetBytes(data);
         }
 
         public override string ToString()
         {
-            if (contentType == "text/plain")
+            if (ContentType == "text/plain")
             {
-                return Encoding.UTF8.GetString(data);
+                return Encoding.UTF8.GetString(Data);
             }
-            return $"data:{contentType};base64,{Convert.ToBase64String(data)}";
+            return $"data:{ContentType};base64,{Convert.ToBase64String(Data)}";
         }
     }
 }
