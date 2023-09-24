@@ -83,7 +83,6 @@ class Program
 
     static void RunWebServer(string hostname, int port, string[] nodeList)
     {
-        Console.WriteLine($"Serving from {hostname} port {port}");
         HttpListener listener = new HttpListener();
         listener.Prefixes.Add($"http://{hostname}:{port}/");
         try

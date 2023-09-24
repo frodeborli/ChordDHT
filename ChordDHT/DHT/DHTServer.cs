@@ -66,6 +66,7 @@ namespace ChordDHT.DHT
         {
             var key = variables["key"];
             var bestNode = ChordProtocol.Lookup(key);
+            Console.WriteLine($"Node {NodeName} looking up {key} (hash={this.ChordProtocol.Hash(key)}) bestNode={bestNode}");
             IStoredItem? result;
             if (bestNode == NodeName)
             {
