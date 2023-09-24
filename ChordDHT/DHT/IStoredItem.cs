@@ -8,7 +8,7 @@ namespace ChordDHT.DHT
 {
     public interface IStoredItem
     {
-        public string contentType { get; }
-        public byte[] data { get; }
+        public string ContentType { get; }
+        public byte[] Data { get; }
     }
 }

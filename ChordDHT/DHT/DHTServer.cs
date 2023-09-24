@@ -13,10 +13,9 @@ namespace ChordDHT.DHT
     {
         private readonly IStorageBackend StorageBackend;
         private readonly Router Router;
-        private readonly string Prefix;
 
         public DHTServer(string nodeName, string[]? nodeList, IStorageBackend storageBackend, Router router, string prefix = "/")
-            : base(nodeName)
+            : base(nodeName, prefix)
         {
             if (nodeList != null)
             {
@@ -27,11 +26,11 @@ namespace ChordDHT.DHT
             }
             StorageBackend = storageBackend;
             Router = router;
-            Prefix = prefix;
-            Router.AddRoute(new Route("GET", $"{prefix}info", new RequestHandler(GetInfoHandler)));
-            Router.AddRoute(new Route("GET", $"{prefix}neighbors", new RequestHandler(GetNeighborsHandler)));
-            Router.AddRoute(new Route("GET", $"{prefix}(?<key>\\w+)", new RequestHandler(GetHandler)));
-            Router.AddRoute(new Route("PUT", $"{prefix}(?<key>\\w+)", new RequestHandler(PutHandler)));
+            Router.AddRoute(new Route("GET", $"{Prefix}info", new RequestHandler(GetInfoHandler)));
+            Router.AddRoute(new Route("GET", $"{Prefix}neighbors", new RequestHandler(GetNeighborsHandler)));
+            Router.AddRoute(new Route("GET", $"{Prefix}(?<key>\\w+)", new RequestHandler(GetHandler)));
+            Router.AddRoute(new Route("PUT", $"{Prefix}(?<key>\\w+)", new RequestHandler(PutHandler)));
+            Router.AddRoute(new Route("OPTIONS", $"{Prefix}(?<key>\\w+)", new RequestHandler(OptionsHandler)));
         }
 
         public void JoinNetwork(string nodeName)
@@ -65,83 +64,69 @@ namespace ChordDHT.DHT
         private async Task GetHandler(HttpListenerContext context, RequestVariables? variables)
         {
             var key = variables["key"];
-            var bestNode = ChordProtocol.Lookup(key);
-            Console.WriteLine($"Node {NodeName} looking up {key} (hash={this.ChordProtocol.Hash(key)}) bestNode={bestNode}");
             IStoredItem? result;
-            if (bestNode == NodeName)
+
+            result = await Get(key);
+            context.Response.AppendHeader("X-Chord-Hops", LastRequestHops.ToString());
+            if (result != null)
             {
-                // This node is responsible for the key
-                result = await StorageBackend.Get(key);
-                if (result != null)
-                {
-                    // We have data
-                    var response = context.Response;
-                    response.ContentType = result.contentType;
-                    response.OutputStream.Write(result.data);
-                    response.OutputStream.Close();
-                } else {
-                    // We don't have data
-                    Router.SendPageNotFound(context);
-                }
+                context.Response.ContentType = result.ContentType;
+                context.Response.StatusCode = 200;
+                await context.Response.OutputStream.WriteAsync(result.Data, 0, result.Data.Length);
+                await context.Response.OutputStream.FlushAsync();
+                context.Response.OutputStream.Close();
+                context.Response.Close();
                 return;
             }
             else
             {
-                // Our node is not responsible for the key, so we'll redirect
-                // the client.
-                var betterUrl = $"http://{bestNode}{Prefix}{key}";
-                var response = context.Response;
-                response.StatusCode = (int) HttpStatusCode.RedirectKeepVerb;
-                response.Headers.Add($"Location: {betterUrl}");
-                response.ContentType = "application/json";
-                string json = JsonSerializer.Serialize(new { redirect = betterUrl });
-                response.OutputStream.Write(Encoding.UTF8.GetBytes(json));
-                response.OutputStream.Close();
-                return;
+                Router.SendPageNotFound(context);
+            }
+        }
+
+        /**
+         * OPTIONS /prefix/{key} for checking if the node is responsible for storing the key or not
+         */
+        private async Task OptionsHandler(HttpListenerContext context, RequestVariables? variables)
+        {
+            var key = variables["key"];
+            var nodeName = ChordProtocol.Lookup(key);
+            if (nodeName == NodeName)
+            {
+                // This node is responsible for the key
+                new GenericStatusRequestHandler(200, "Ok").HandleRequest(context);
+            } else
+            {
+                context.Response.AddHeader("Location", $"http://{nodeName}{Prefix}{key}");
+                new GenericStatusRequestHandler(307, $"Redirect to http://{nodeName}{Prefix}{key}").HandleRequest(context);
             }
         }
 
         private async Task PutHandler(HttpListenerContext context, RequestVariables? variables)
         {
             var key = variables["key"];
-            var bestNode = ChordProtocol.Lookup(key);
-            if (bestNode == NodeName)
-            {
-                // We should store the request body locally
-                Stream inputStream = context.Request.InputStream;
-                MemoryStream memoryStream = new MemoryStream();
-                byte[] buffer = new byte[4096];
-                int bytesRead;
+            Stream inputStream = context.Request.InputStream;
+            MemoryStream memoryStream = new MemoryStream();
+            byte[] buffer = new byte[4096];
+            int bytesRead;
 
-                while ((bytesRead = await inputStream.ReadAsync(buffer, 0, buffer.Length)) > 0) 
-                {
-                    await memoryStream.WriteAsync(buffer, 0, bytesRead);
-                }
-                var body = memoryStream.ToArray();
-                var item = new StoredItem(context.Request.ContentType ?? "application/octet-stream", body);
-                if (await StorageBackend.Put(key, item))
-                {
-                    new GenericStatusRequestHandler(200, "Ok").HandleRequest(context);
-                } else
-                {
-                    new GenericStatusRequestHandler(HttpStatusCode.Conflict, "Conflict").HandleRequest(context);
-                }
-                return;
+            while ((bytesRead = await inputStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                await memoryStream.WriteAsync(buffer, 0, bytesRead);
+            }
+            var body = memoryStream.ToArray();
+            var item = new StoredItem(context.Request.ContentType ?? "application/octet-stream", body);
+
+            if (await Put(key, item))
+            {
+                context.Response.AppendHeader("X-Chord-Hops", LastRequestHops.ToString());
+                new GenericStatusRequestHandler(200, "Ok").HandleRequest(context);
             }
             else
             {
-                // Our node is not responsible for the key, so we'll redirect
-                // the client.
-                var betterUrl = $"http://{bestNode}{Prefix}{key}";
-                var response = context.Response;
-                response.StatusCode = (int)HttpStatusCode.RedirectKeepVerb;
-                response.Headers.Add($"Location: {betterUrl}");
-                response.ContentType = "application/json";
-                string json = JsonSerializer.Serialize(new { redirect = betterUrl });
-                response.OutputStream.Write(Encoding.UTF8.GetBytes(json));
-                response.OutputStream.Close();
-                return;
+                new GenericStatusRequestHandler(HttpStatusCode.Conflict, "Conflict").HandleRequest(context);
             }
+            return;
         }
 
 
@@ -153,7 +138,26 @@ namespace ChordDHT.DHT
                 return await StorageBackend.Get(key);
             } else
             {
-                return await base.Get(key);
+                var url = await FindNode(key);
+                HttpResponseMessage response = await HttpClient.GetAsync(url);
+                if (response.IsSuccessStatusCode)
+                {
+                    // We got the data we wanted
+                    var jsonString = await response.Content.ReadAsStringAsync();
+                    StoredItem item;
+                    if (response.Content.Headers.ContentType != null)
+                    {
+                        item = new StoredItem(response.Content.Headers.ContentType.ToString(), await response.Content.ReadAsByteArrayAsync());
+                    } else
+                    {
+                        item = new StoredItem(await response.Content.ReadAsStringAsync());
+                    }
+                    return item;
+                } else
+                {
+                    Console.WriteLine($"Response status code {response.StatusCode} from {url}");
+                    return null;
+                }
             }
         }
 
@@ -163,9 +167,23 @@ namespace ChordDHT.DHT
             if (bestNode == NodeName)
             {
                 return await StorageBackend.Put(key, value);
-            } else
+            }
+            else
             {
-                return await base.Put(key, value);
+                var nextUrl = await FindNode(key);
+
+                var requestBody = new ByteArrayContent(value.Data);
+                requestBody.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(value.ContentType);
+
+                var response = await HttpClient.PutAsync(nextUrl, requestBody);
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
+                }
             }
         }
 
@@ -180,7 +198,6 @@ namespace ChordDHT.DHT
                 return await base.Remove(key);
             }
         }
-
 
     }
 }

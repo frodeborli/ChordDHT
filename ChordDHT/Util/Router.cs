@@ -51,7 +51,6 @@ namespace ChordDHT.Util
         {
             foreach (Route route in routes)
             {
-                Console.WriteLine($"Trying route '{route}' for request to '{context.Request.Url}'");
                 if (route.HandleRequest(context, variables))
                 {
                     return true;

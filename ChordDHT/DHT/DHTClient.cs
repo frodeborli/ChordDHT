@@ -9,19 +9,23 @@ namespace ChordDHT.DHT
     {
         protected Chord ChordProtocol;
         private HttpClientHandler HttpClientHandler;
-        private HttpClient HttpClient;
+        protected HttpClient HttpClient;
+        protected readonly string Prefix;
         public string NodeName;
 
         public int LastRequestHops { get; private set; } = 0;
 
-        public DHTClient(string nodeName)
+        public DHTClient(string nodeName, string prefix="/")
         {
             this.NodeName = nodeName;
+            this.Prefix = prefix;
             HttpClientHandler = new HttpClientHandler
             {
                 AllowAutoRedirect = false
             };
             HttpClient = new HttpClient(HttpClientHandler);
+            HttpClient.DefaultRequestHeaders.ConnectionClose = true;
+            HttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(nodeName.Replace(":", "/"));
             ChordProtocol = new Chord(nodeName);
         }
 
@@ -30,7 +34,7 @@ namespace ChordDHT.DHT
             LastRequestHops = 0;
             var bestNode = ChordProtocol.Lookup(key);
 
-            var nextUrl = $"http://{bestNode}/storage/{key}";
+            var nextUrl = $"http://{bestNode}{Prefix}{key}";
 
             // Find the node responsible for this key
             for (; ; )
@@ -69,8 +73,8 @@ namespace ChordDHT.DHT
         {
             LastRequestHops = 0;
 
-            var requestBody = new ByteArrayContent(value.data);
-            requestBody.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(value.contentType);
+            var requestBody = new ByteArrayContent(value.Data);
+            requestBody.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(value.ContentType);
 
             var bestNode = ChordProtocol.Lookup(key);
             var nextUrl = $"http://{bestNode}/storage/{key}";
@@ -79,7 +83,6 @@ namespace ChordDHT.DHT
             for (; ; )
             {
                 LastRequestHops++;
-
                 var response = await HttpClient.PutAsync(nextUrl, requestBody);
 
                 if (response.IsSuccessStatusCode)
@@ -132,6 +135,37 @@ namespace ChordDHT.DHT
                     throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
                 }
             }
+        }
+
+        public async Task<string> FindNode(string key)
+        {
+            LastRequestHops = 0;
+            var bestNode = ChordProtocol.Lookup(key);
+
+            var nextUrl = $"http://{bestNode}{Prefix}{key}";
+
+            // Find the node responsible for this key
+            for (; ; )
+            {
+                LastRequestHops++;
+                var requestMessage = new HttpRequestMessage(HttpMethod.Options, nextUrl);
+                var response = await HttpClient.SendAsync(requestMessage);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return nextUrl;
+                }
+                else if (response.StatusCode == HttpStatusCode.RedirectKeepVerb && response.Headers?.Location != null)
+                {
+                    // The request should be repeated at another node
+                    nextUrl = response.Headers.Location?.ToString();
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
+                }
+            }
+
         }
     }
 }

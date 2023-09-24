@@ -70,7 +70,16 @@ class Program
         for (int i = 0; i < nodeCount; i++)
         {
             int portNumber = port + i;
-            tasks[i] = Task.Run(() => RunWebServer(hostname, portNumber, nodeList));
+            tasks[i] = Task.Run(() =>
+            {
+                try
+                {
+                    RunWebServer(hostname, portNumber, nodeList);
+                }
+                catch (Exception ex) {
+                    Console.WriteLine($"{ex.GetType()}: {ex.Message}");
+                }
+            });
         }
         Console.ReadKey();
         Console.WriteLine("Instances stopped");
@@ -104,6 +113,7 @@ class Program
         while (true)
         {
             HttpListenerContext context = listener.GetContext();
+            Console.WriteLine($"HTTP/{context.Request.ProtocolVersion} {context.Request.Headers["User-Agent"]} {context.Request.HttpMethod} http://{hostname}:{port}{context.Request.RawUrl}");
             HandleContext(context, router);
         }
     }

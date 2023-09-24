@@ -29,6 +29,8 @@ namespace ChordDHT.ChordProtocol
         public string SuccessorNode { get; private set; }
         public string PredecessorNode { get; private set; }
 
+        private bool FingerTableUpdateScheduled = false;
+
         public Chord(string nodeName, Func<string, ulong> hashFunction = null)
         {
             this.NodeName = nodeName;
@@ -78,6 +80,24 @@ namespace ChordDHT.ChordProtocol
 
         protected void UpdateFingersTable()
         {
+            if (!FingerTableUpdateScheduled)
+            {
+                FingerTableUpdateScheduled = true;
+                Task.Run(() =>
+                {
+                    try
+                    {
+                        UpdateFingersTableReal();
+                    }
+                    catch (Exception ex) {
+                        Console.WriteLine($"{ex.GetType()}: {ex.Message}");
+                    }
+                });
+            }
+        }
+
+        private void UpdateFingersTableReal() {
+            FingerTableUpdateScheduled = false;
             Console.WriteLine($"Updating fingers table for {NodeName}");
             // Ensure known nodes is sorted after their node position
             KnownNodes.Sort((a, b) =>
@@ -98,7 +118,6 @@ namespace ChordDHT.ChordProtocol
             Start = Hash(PredecessorNode) + 1;
 
             ulong fingerOffset = 1;
-            int nextNodeToUpdate = 0;
             // Assign each node to the correct finger O(n^2) where n = number of fingers
             for (uint i = 0; i < Fingers.Length; i++)
             {
