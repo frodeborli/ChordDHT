@@ -1,4 +1,5 @@
-﻿using ChordDHT.Util;
+﻿using ChordDHT.ChordProtocol;
+using ChordDHT.Util;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,10 +14,13 @@ namespace ChordDHT.DHT
     {
         private readonly IStorageBackend StorageBackend;
         private readonly Router Router;
+        protected Chord ChordProtocol;
+        public int LastRequestHops { get; private set; } = 0;
 
         public DHTServer(string nodeName, string[]? nodeList, IStorageBackend storageBackend, Router router, string prefix = "/")
             : base(nodeName, prefix)
         {
+            ChordProtocol = new Chord(nodeName);
             if (nodeList != null)
             {
                 foreach (string otherNode in nodeList)
@@ -30,14 +34,19 @@ namespace ChordDHT.DHT
             Router.AddRoute(new Route("GET", $"{Prefix}neighbors", new RequestHandler(GetNeighborsHandler)));
             Router.AddRoute(new Route("GET", $"{Prefix}(?<key>\\w+)", new RequestHandler(GetHandler)));
             Router.AddRoute(new Route("PUT", $"{Prefix}(?<key>\\w+)", new RequestHandler(PutHandler)));
+            Router.AddRoute(new Route("DELETE", $"{Prefix}(?<key>\\w+)", new RequestHandler(DeleteHandler)));
             Router.AddRoute(new Route("OPTIONS", $"{Prefix}(?<key>\\w+)", new RequestHandler(OptionsHandler)));
         }
 
         public void JoinNetwork(string nodeName)
         {
-            // TODO: Add nodename to ChordProtocol and notify the other node about our existence.
+            throw new NotImplementedException();
         }
 
+        /**
+         * Handles requests to {Prefix}/info and returns some information about the
+         * node.
+         */
         private async Task GetInfoHandler(HttpListenerContext context, RequestVariables? variables)
         {
             var info = new
@@ -52,6 +61,10 @@ namespace ChordDHT.DHT
             await Send.JSON(context, info);
         }
 
+        /**
+         * Handles GET requests to {Prefix}/neighbors and returns the predecessor node and
+         * successor node
+         */
         private async Task GetNeighborsHandler(HttpListenerContext context, RequestVariables? variables)
         {
             await Send.JSON(context, new
@@ -61,12 +74,15 @@ namespace ChordDHT.DHT
             });
         }
 
+        /**
+         * Handles GET requests to {Prefix}{Key} and returns the value at the
+         * location with the correct content type, or 404.
+         */
         private async Task GetHandler(HttpListenerContext context, RequestVariables? variables)
         {
             var key = variables["key"];
-            IStoredItem? result;
+            IStoredItem? result = await Get(key);
 
-            result = await Get(key);
             context.Response.AppendHeader("X-Chord-Hops", LastRequestHops.ToString());
             if (result != null)
             {
@@ -85,7 +101,9 @@ namespace ChordDHT.DHT
         }
 
         /**
-         * OPTIONS /prefix/{key} for checking if the node is responsible for storing the key or not
+         * Handles OPTIONS requests to {Prefix}{Key} and returns 200 Ok if the node
+         * is responsible for handling the key, or a 307 Redirect if another node
+         * is responsible for the key.
          */
         private async Task OptionsHandler(HttpListenerContext context, RequestVariables? variables)
         {
@@ -102,6 +120,10 @@ namespace ChordDHT.DHT
             }
         }
 
+        /**
+         * Handles PUT requests to {Prefix}{Key} and stores the value in the distributed
+         * hash table.
+         */
         private async Task PutHandler(HttpListenerContext context, RequestVariables? variables)
         {
             var key = variables["key"];
@@ -124,11 +146,26 @@ namespace ChordDHT.DHT
             }
             else
             {
-                new GenericStatusRequestHandler(HttpStatusCode.Conflict, "Conflict").HandleRequest(context);
+                new GenericStatusRequestHandler(HttpStatusCode.Conflict, "Could not store").HandleRequest(context);
             }
-            return;
         }
 
+        /**
+         * Handles DELETE requests to {Prefix}{Key} and performes a delete operation in
+         * the DHT.
+         */
+        private async Task DeleteHandler(HttpListenerContext context, RequestVariables? variables)
+        { 
+            var key = variables["key"];
+            if (await Remove(key))
+            {
+                context.Response.AppendHeader("X-Chord-Hops", LastRequestHops.ToString());
+                new GenericStatusRequestHandler(200, "Ok").HandleRequest(context);
+            } else
+            {
+                new GenericStatusRequestHandler(HttpStatusCode.Conflict, "Could not delete");
+            }
+        }
 
         new public async Task<IStoredItem?> Get(string key)
         {
@@ -194,9 +231,51 @@ namespace ChordDHT.DHT
                 return await StorageBackend.Remove(key);
             } else
             {
-                return await base.Remove(key);
+                var url = await FindNode(key);
+                var response = await HttpClient.DeleteAsync(url);
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+                else
+                {
+                    return false;
+                }
             }
         }
 
+        /**
+         * Finds the node which is responsible for storing the key and
+         * returns the final direct URL for the key.
+         */
+        public async Task<string> FindNode(string key)
+        {
+            LastRequestHops = 0;
+            var bestNode = ChordProtocol.Lookup(key);
+
+            var nextUrl = $"http://{bestNode}{Prefix}{key}";
+
+            // Find the node responsible for this key
+            for (; ; )
+            {
+                LastRequestHops++;
+                var requestMessage = new HttpRequestMessage(HttpMethod.Options, nextUrl);
+                var response = await HttpClient.SendAsync(requestMessage);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return nextUrl;
+                }
+                else if (response.StatusCode == HttpStatusCode.RedirectKeepVerb && response.Headers?.Location != null)
+                {
+                    // The request should be repeated at another node
+                    nextUrl = response.Headers.Location?.ToString();
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
+                }
+            }
+        }
     }
 }

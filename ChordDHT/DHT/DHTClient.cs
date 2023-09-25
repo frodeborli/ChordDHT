@@ -5,61 +5,45 @@ using System.Text.Json;
 
 namespace ChordDHT.DHT
 {
+
+    /**
+     * A ChordDHT client implementation
+     */
     public class DHTClient : IStorageBackend
     {
-        protected Chord ChordProtocol;
         private HttpClientHandler HttpClientHandler;
         protected HttpClient HttpClient;
         protected readonly string Prefix;
         public string NodeName;
 
-        public int LastRequestHops { get; private set; } = 0;
-
-        public DHTClient(string nodeName, string prefix="/")
+        public DHTClient(string primaryHostName, string prefix="/")
         {
-            this.NodeName = nodeName;
-            this.Prefix = prefix;
+            NodeName = primaryHostName;
+            Prefix = prefix;
             HttpClientHandler = new HttpClientHandler
             {
                 AllowAutoRedirect = false
             };
             HttpClient = new HttpClient(HttpClientHandler);
-            HttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(nodeName.Replace(":", "/"));
-            ChordProtocol = new Chord(nodeName);
+            HttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(primaryHostName.Replace(":", "/"));
         }
 
         public async Task<IStoredItem?> Get(string key)
         {
-            LastRequestHops = 0;
-            var bestNode = ChordProtocol.Lookup(key);
+            var url = $"http://{NodeName}{Prefix}{key}";
+            var response = await HttpClient.GetAsync(url);
 
-            var nextUrl = $"http://{bestNode}{Prefix}{key}";
-
-            // Find the node responsible for this key
-            for (; ; )
+            if (response.IsSuccessStatusCode)
             {
-                LastRequestHops++;
-                var response = await HttpClient.GetAsync(nextUrl);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    // We got the data we wanted
-                    var jsonString = await response.Content.ReadAsStringAsync();
-                    return JsonSerializer.Deserialize<IStoredItem>(jsonString);
-                }
-                else if (response.StatusCode == HttpStatusCode.NotFound)
-                {
-                    // The node that was supposed to have the key does not have it
-                    return null;
-                }
-                else if (response.StatusCode == HttpStatusCode.RedirectKeepVerb && response.Headers?.Location != null)
-                {
-                    // The request should be repeated at another node
-                    nextUrl = response.Headers.Location?.ToString();
-                } else
-                {
-                    throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
-                }
+                return await StoredItem.CreateFrom(response);
+            }
+            else if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                // The node that was supposed to have the key does not have it
+                return null;
+            } else
+            {
+                throw new InvalidOperationException($"Unexpected response from GET {url} (statusCode={response.StatusCode})");
             }
         }
 
@@ -70,101 +54,44 @@ namespace ChordDHT.DHT
 
         public async Task<bool> Put(string key, IStoredItem value)
         {
-            LastRequestHops = 0;
-
             var requestBody = new ByteArrayContent(value.Data);
             requestBody.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(value.ContentType);
 
-            var bestNode = ChordProtocol.Lookup(key);
-            var nextUrl = $"http://{bestNode}/storage/{key}";
+            var url = $"http://{NodeName}{Prefix}{key}";
 
-            // Find the node responsible for this key
-            for (; ; )
+            var response = await HttpClient.PutAsync(url, requestBody);
+
+            if (response.IsSuccessStatusCode)
             {
-                LastRequestHops++;
-                var response = await HttpClient.PutAsync(nextUrl, requestBody);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    // This node was willing to save our data
-                    return true;
-                }
-                else if (response.StatusCode == HttpStatusCode.RedirectKeepVerb && response.Headers?.Location != null)
-                {
-                    // This node forwards us to another node for saving the data
-                    nextUrl = response.Headers.Location?.ToString();
-                }
-                else
-                {
-                    throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
-                }
+                // This node was willing to save our data
+                return true;
+            }
+            else
+            {
+                throw new InvalidOperationException($"Unexpected response from PUT {url} (statusCode={response.StatusCode})");
             }
         }
 
         public async Task<bool> Remove(string key)
         {
-            LastRequestHops = 0;
+            var url = $"http://{NodeName}{Prefix}{key}";
 
-            var bestNode = ChordProtocol.Lookup(key);
-            var nextUrl = $"http://{bestNode}/storage/{key}";
+            var response = await HttpClient.DeleteAsync(url);
 
-            // Find the node responsible for this key
-            for (; ; )
+            if (response.IsSuccessStatusCode)
             {
-                LastRequestHops++;
-                var response = await HttpClient.DeleteAsync(nextUrl);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    // We found the node responsible for the key and the key was deleted
-                    return true;
-                }
-                else if (response.StatusCode == HttpStatusCode.NotFound)
-                {
-                    // The node that was supposed to have the key does not have it
-                    return false;
-                }
-                else if (response.StatusCode == HttpStatusCode.RedirectKeepVerb && response.Headers?.Location != null)
-                {
-                    // The request should be repeated at another node
-                    nextUrl = response.Headers.Location?.ToString();
-                }
-                else
-                {
-                    throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
-                }
+                // We found the node responsible for the key and the key was deleted
+                return true;
             }
-        }
-
-        public async Task<string> FindNode(string key)
-        {
-            LastRequestHops = 0;
-            var bestNode = ChordProtocol.Lookup(key);
-
-            var nextUrl = $"http://{bestNode}{Prefix}{key}";
-
-            // Find the node responsible for this key
-            for (; ; )
+            else if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                LastRequestHops++;
-                var requestMessage = new HttpRequestMessage(HttpMethod.Options, nextUrl);
-                var response = await HttpClient.SendAsync(requestMessage);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    return nextUrl;
-                }
-                else if (response.StatusCode == HttpStatusCode.RedirectKeepVerb && response.Headers?.Location != null)
-                {
-                    // The request should be repeated at another node
-                    nextUrl = response.Headers.Location?.ToString();
-                }
-                else
-                {
-                    throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
-                }
+                // The node that was supposed to have the key does not have it
+                return false;
             }
-
+            else
+            {
+                throw new InvalidOperationException($"Unexpected response from DELETE {url} (statusCode={response.StatusCode})");
+            }
         }
     }
 }
