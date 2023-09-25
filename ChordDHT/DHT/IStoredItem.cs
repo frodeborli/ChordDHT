@@ -10,5 +10,7 @@ namespace ChordDHT.DHT
     {
         public string ContentType { get; }
         public byte[] Data { get; }
+
+        public DateTime CreatedDate { get; }
     }
 }
