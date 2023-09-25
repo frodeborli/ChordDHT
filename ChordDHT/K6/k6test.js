@@ -1,8 +1,13 @@
 ﻿import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { options } from './k6options.js';
-// The options variable is defined in the imported module
-// and is used by k6 to configure the test.
+
+export const setup = () => {
+    return {
+        vus: options.vus,
+        duration: '30s',
+    };
+};
 
 export default function () {
     const locations = [
@@ -14,6 +19,8 @@ export default function () {
     ];
 
     const randomLocation = () => locations[Math.floor(Math.random() * locations.length)];
+
+    console.log(`Numbers of VU {options.vus}`);
 
     const generateRandomString = () => Math.random().toString(36).substring(7);
     const generateRandomLengthString = () => {
@@ -27,26 +34,25 @@ export default function () {
         value: generateRandomLengthString(),
     }));
 
-    const batchRequests = randomKeyAndValue.map(({ key, value }) => {
+    const hopStats = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    randomKeyAndValue.forEach(({ key, value }) => {
         const location = randomLocation();
-        return [
-            { method: 'PUT', url: `http://${location}/storage/${key}`, body: value, params: { headers: { 'Content-Type': 'plain/text' } } },
-            { method: 'GET', url: `http://${location}/storage/${key}`, params: { headers: { 'Content-Type': 'application/json' } } }
-        ];
-    }).flat();
-
-    const responses = http.batch(batchRequests);
-
-    randomKeyAndValue.forEach(({ value }, i) => {
-        check(responses[i * 2], {
+        const putResponse = http.put(`http://${location}/storage/${key}`, value, { headers: { 'Content-Type': 'plain/text' } });
+        var headerValue = putResponse.headers["X-Chord-Hops"];
+        hopStats[headerValue]++;
+        check(putResponse, {
             'PUT status is 200': (r) => r.status === 200,
         });
 
-        sleep(0.1);
 
-        check(responses[i * 2 + 1], {
+        const getResponse = http.get(`http://${location}/storage/${key}`);
+        headerValue = getResponse.headers["X-Chord-Hops"];
+        hopStats[headerValue]++;
+        check(getResponse, {
             'GET status is 200': (r) => r.status === 200,
             'body is correct': (r) => r.body === value,
         });
     });
+    console.log(hopStats);
 }
