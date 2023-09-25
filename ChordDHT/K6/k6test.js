@@ -1,5 +1,5 @@
 ﻿import http from 'k6/http';
-import { check } from 'k6';
+import { check, sleep } from 'k6';
 import { options } from './k6options.js';
 // The options variable is defined in the imported module
 // and is used by k6 to configure the test.
@@ -41,6 +41,8 @@ export default function () {
         check(responses[i * 2], {
             'PUT status is 200': (r) => r.status === 200,
         });
+
+        sleep(0.1);
 
         check(responses[i * 2 + 1], {
             'GET status is 200': (r) => r.status === 200,

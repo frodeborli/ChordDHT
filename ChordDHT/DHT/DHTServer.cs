@@ -115,7 +115,7 @@ namespace ChordDHT.DHT
                 await memoryStream.WriteAsync(buffer, 0, bytesRead);
             }
             var body = memoryStream.ToArray();
-            var item = new StoredItem(context.Request.ContentType ?? "application/octet-stream", body);
+            var item = new StoredItem(context.Request.ContentType ?? "text/plain", body);
 
             if (await Put(key, item))
             {
