@@ -11,6 +11,7 @@ class Program
 {
     public static void Main(string[] args)
     {
+        ThreadPool.SetMinThreads(16, 64);
         if (args.Length == 0) {
             Console.WriteLine("Usage:");
             Console.WriteLine("  `chord serve <hostname> <port> [nodehost:node_port ...]`");
@@ -18,8 +19,8 @@ class Program
             Console.WriteLine("  `chord multiserve <hostname> <start_port> <nodes_to_start>`");
             Console.WriteLine("     Start multiple nodes on a single server.");
             Console.WriteLine("     nodes_to_start is the total number of nodes, minimum 1.");
-            Console.WriteLine("  `chord benchmark <hostname> <port> <nodes_to_start>");
-            Console.WriteLine("     Start a number of nodes and run testing and measurements.");
+            Console.WriteLine("  `chord benchmark <hostname:port> [hostname:port ...]");
+            Console.WriteLine("     Run benchmarks against a list of nodes.");
             return;
         }
 
@@ -41,8 +42,8 @@ class Program
                 break;
         }
 
-        Console.WriteLine("Press a key to terminate");
-        Console.ReadKey();
+        Console.WriteLine("Running for 5 minutes at most");
+        Task.Delay(300000).Wait();
     }
 
     static void Serve(string[] args)
@@ -60,7 +61,7 @@ class Program
 
     }
 
-    static async void Multiserve(string[] args)
+    static void Multiserve(string[] args)
     {
         var hostname = args[1];
         var port = int.Parse(args[2]);
@@ -94,46 +95,29 @@ class Program
                     Console.WriteLine($"{ex.GetType()}: {ex.Message}");
                 }
             });
+
         }
     }
 
     static async void Benchmark(string[] args)
     {
-        var hostname = args[1];
-        var port = int.Parse(args[2]);
-        var nodeCount = int.Parse(args[3]);
+        var nodeCount = args.Length - 1;
         if (nodeCount < 1)
         {
-            Console.WriteLine("Must run at least one node");
+            Console.WriteLine("Must benchmark at least one node");
             return;
         }
         var nodeList = new string[nodeCount];
-        nodeList[0] = $"{hostname}:{port}";
-        for (int i = 1; i < nodeCount; i++)
-        {
-            nodeList[i] = $"{hostname}:{port + i}";
-        }
-        Task[] tasks = new Task[nodeCount];
-
-        Console.WriteLine("Starting instances...");
-
         for (int i = 0; i < nodeCount; i++)
         {
-            int portNumber = port + i;
-            tasks[i] = Task.Run(() =>
-            {
-                try
-                {
-                    RunWebServer(hostname, portNumber, nodeList);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"{ex.GetType()}: {ex.Message}");
-                }
-            });
+            nodeList[i] = args[i+1];
         }
-        Console.WriteLine("Waiting 1 second before starting benchmarks...");
-        await Task.Delay(1000);
+        foreach (string n in nodeList)
+        {
+            Console.WriteLine($"Node {n}");
+        }
+        await Task.Delay(2000);
+
         HttpClient httpClient = new HttpClient();
         Random random = new Random();
         string[] keys = new string[1000];
@@ -142,27 +126,56 @@ class Program
             keys[i] = RandomStringGenerator.GenerateRandomString(random.Next(1, 30));
         }
 
-        var randomKey = () =>
+        var getRandomKey = () =>
         {
             return keys[random.Next(keys.Length)];
         };
-        var randomNodeUrl = () =>
+        var randomNodeAndKey = () =>
         {
-            return $"http://{nodeList[random.Next(nodeList.Length)]}/storage/{randomKey()}";
+            return $"http://{nodeList[random.Next(nodeList.Length)]}/storage/{getRandomKey()}";
+        };
+        var randomNode = (string key) =>
+        {
+            return $"http://{nodeList[random.Next(nodeList.Length)]}/storage/{key}";
+        };
+        var randomKey = (string node) =>
+        {
+            return $"http://{node}/storage/{getRandomKey()}";
         };
 
 
         await new Benchmark("GET requests for random keys on random hosts", async () => {
-            await httpClient.GetAsync(randomNodeUrl());
+            Console.WriteLine(randomNodeAndKey());
+            await httpClient.GetAsync(randomNodeAndKey());
         }).Run(200, 20);
 
         await new Benchmark("PUT requests for random keys on random hosts", async () => {
             var requestBody = new StringContent("Lorem Ipsum Dolor Sit Amet");
             requestBody.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
-            await httpClient.PutAsync(randomNodeUrl(), requestBody);
+            await httpClient.PutAsync(randomNodeAndKey(), requestBody);
         }).Run(200, 20);
 
-        Console.WriteLine("Instances stopped");
+        await new Benchmark("GET requests for key 'hello' on random hosts", async () => {
+            await httpClient.GetAsync(randomNode("hello"));
+        }).Run(200, 20);
+
+        await new Benchmark("PUT requests for key 'hello' on random hosts", async () => {
+            var requestBody = new StringContent("Lorem Ipsum Dolor Sit Amet");
+            requestBody.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
+            await httpClient.PutAsync(randomNode("hello"), requestBody);
+        }).Run(200, 20);
+
+        await new Benchmark("GET requests for random key on first host", async () => {
+            await httpClient.GetAsync(randomKey(nodeList[0]));
+        }).Run(200, 20);
+
+        await new Benchmark("PUT requests for key 'hello' on random hosts", async () => {
+            var requestBody = new StringContent("Lorem Ipsum Dolor Sit Amet");
+            requestBody.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
+            await httpClient.PutAsync(randomKey(nodeList[0]), requestBody);
+        }).Run(200, 20);
+
+        Console.WriteLine("Testing completed, press a key...");
         Console.ReadKey();
     }
 

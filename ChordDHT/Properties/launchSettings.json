@@ -24,9 +24,9 @@
       "commandName": "Project",
       "commandLineArgs": "multiserve localhost 8080 100"
     },
-    "Benchmark 5 nodes": {
+    "Benchmark localhost:8080-8084": {
       "commandName": "Project",
-      "commandLineArgs": "benchmark localhost 8080 5"
+      "commandLineArgs": "benchmark localhost:8080 localhost:8081 localhost:8082 localhost:8083 localhost:8084"
     }
   }
 }

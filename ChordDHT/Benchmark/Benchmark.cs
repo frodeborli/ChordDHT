@@ -42,10 +42,18 @@ namespace ChordDHT.Benchmark
                     for (int j = 0; j < repetitions; j++)
                     {
                         innerStopwatch.Restart();
-                        await TestFunction();
-                        innerStopwatch.Stop();
-                        minimum = Math.Min(minimum, innerStopwatch.ElapsedTicks);
-                        maximum = Math.Max(maximum, innerStopwatch.ElapsedTicks);
+                        try
+                        {
+                            await TestFunction();
+                            innerStopwatch.Stop();
+                            minimum = Math.Min(minimum, innerStopwatch.ElapsedTicks);
+                            maximum = Math.Max(maximum, innerStopwatch.ElapsedTicks);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.ToString());
+                            innerStopwatch.Stop();
+                        }
                     }
                 });
             }
