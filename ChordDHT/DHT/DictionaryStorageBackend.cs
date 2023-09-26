@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -8,21 +9,21 @@ namespace ChordDHT.DHT
 {
     public class DictionaryStorageBackend : IStorageBackend
     {
-        private Dictionary<string, IStoredItem> _dictionary = new Dictionary<string, IStoredItem>();
+        private ConcurrentDictionary<string, IStoredItem> _dictionary = new ConcurrentDictionary<string, IStoredItem>();
 
         public async Task<bool> Remove(string key)
         {
-            _dictionary.Remove(key);
-            return true;
+            IStoredItem removedItem;
+            return _dictionary.TryRemove(key, out removedItem);
         }
 
         public async Task<IStoredItem?> Get(string key)
         {
-            if (!_dictionary.ContainsKey(key))
+            if (_dictionary.TryGetValue(key, out var value))
             {
-                return null;
+                return value;
             }
-            return _dictionary[key];
+            return null;
         }
 
         public async Task<bool> ContainsKey(string key)

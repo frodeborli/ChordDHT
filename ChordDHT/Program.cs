@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics.Metrics;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text.Encodings.Web;
+using ChordDHT.Benchmark;
 using ChordDHT.ChordProtocol;
 using ChordDHT.DHT;
 using ChordDHT.Util;
@@ -11,10 +13,13 @@ class Program
     {
         if (args.Length == 0) {
             Console.WriteLine("Usage:");
-            Console.WriteLine("  Start a chord node and provide a list of other nodes:");
-            Console.WriteLine("    `chord serve <hostname> <port> [nodehost:node_port ...]`");
-            Console.WriteLine("  Start multiple nodes on a single server:");
-            Console.WriteLine("    `chord multiserve <hostname> <start_port> <nodes_to_start>`");
+            Console.WriteLine("  `chord serve <hostname> <port> [nodehost:node_port ...]`");
+            Console.WriteLine("     Start a chord node and provide a list of other nodes:");
+            Console.WriteLine("  `chord multiserve <hostname> <start_port> <nodes_to_start>`");
+            Console.WriteLine("     Start multiple nodes on a single server.");
+            Console.WriteLine("     nodes_to_start is the total number of nodes, minimum 1.");
+            Console.WriteLine("  `chord benchmark <hostname> <port> <nodes_to_start>");
+            Console.WriteLine("     Start a number of nodes and run testing and measurements.");
             return;
         }
 
@@ -29,7 +34,15 @@ class Program
                 // Start a single node
                 Serve(args);
                 break;
+
+            case "benchmark":
+                // Start multiple nodes and run testing
+                Task.Run(() => Benchmark(args));
+                break;
         }
+
+        Console.WriteLine("Press a key to terminate");
+        Console.ReadKey();
     }
 
     static void Serve(string[] args)
@@ -76,13 +89,81 @@ class Program
                 {
                     RunWebServer(hostname, portNumber, nodeList);
                 }
-                catch (Exception ex) {
+                catch (Exception ex)
+                {
                     Console.WriteLine($"{ex.GetType()}: {ex.Message}");
                 }
             });
         }
-        Console.ReadKey();
+    }
+
+    static async void Benchmark(string[] args)
+    {
+        var hostname = args[1];
+        var port = int.Parse(args[2]);
+        var nodeCount = int.Parse(args[3]);
+        if (nodeCount < 1)
+        {
+            Console.WriteLine("Must run at least one node");
+            return;
+        }
+        var nodeList = new string[nodeCount];
+        nodeList[0] = $"{hostname}:{port}";
+        for (int i = 1; i < nodeCount; i++)
+        {
+            nodeList[i] = $"{hostname}:{port + i}";
+        }
+        Task[] tasks = new Task[nodeCount];
+
+        Console.WriteLine("Starting instances...");
+
+        for (int i = 0; i < nodeCount; i++)
+        {
+            int portNumber = port + i;
+            tasks[i] = Task.Run(() =>
+            {
+                try
+                {
+                    RunWebServer(hostname, portNumber, nodeList);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"{ex.GetType()}: {ex.Message}");
+                }
+            });
+        }
+        Console.WriteLine("Waiting 1 second before starting benchmarks...");
+        await Task.Delay(1000);
+        HttpClient httpClient = new HttpClient();
+        Random random = new Random();
+        string[] keys = new string[1000];
+        for (int i = 0; i < 1000; i++)
+        {
+            keys[i] = RandomStringGenerator.GenerateRandomString(random.Next(1, 30));
+        }
+
+        var randomKey = () =>
+        {
+            return keys[random.Next(keys.Length)];
+        };
+        var randomNodeUrl = () =>
+        {
+            return $"http://{nodeList[random.Next(nodeList.Length)]}/storage/{randomKey()}";
+        };
+
+
+        await new Benchmark("GET requests for random keys on random hosts", async () => {
+            await httpClient.GetAsync(randomNodeUrl());
+        }).Run(200, 20);
+
+        await new Benchmark("PUT requests for random keys on random hosts", async () => {
+            var requestBody = new StringContent("Lorem Ipsum Dolor Sit Amet");
+            requestBody.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
+            await httpClient.PutAsync(randomNodeUrl(), requestBody);
+        }).Run(200, 20);
+
         Console.WriteLine("Instances stopped");
+        Console.ReadKey();
     }
 
     static ulong hash(string key)
@@ -113,7 +194,7 @@ class Program
         while (true)
         {
             HttpListenerContext context = listener.GetContext();
-            Console.WriteLine($"HTTP/{context.Request.ProtocolVersion} {context.Request.Headers["User-Agent"]} {context.Request.HttpMethod} http://{hostname}:{port}{context.Request.RawUrl}");
+            // Console.WriteLine($"HTTP/{context.Request.ProtocolVersion} {context.Request.Headers["User-Agent"]} {context.Request.HttpMethod} http://{hostname}:{port}{context.Request.RawUrl}");
             HandleContext(context, router);
         }
     }
