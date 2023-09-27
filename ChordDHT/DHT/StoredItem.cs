@@ -19,6 +19,8 @@ namespace ChordDHT.DHT
         [JsonPropertyName("datetime")]
         public DateTime CreatedDate { get; private set; }
 
+        public int? NodeHopCounter { get; set; } = null;
+
         public StoredItem(string contentType, byte[] data)
         {
             ContentType = contentType;
@@ -47,7 +49,12 @@ namespace ChordDHT.DHT
             }
             else
             {
-                return new StoredItem(contentType, body);
+                var item = new StoredItem(contentType, body);
+                if (response.Headers.Contains("X-Chord-Hops"))
+                {
+                    item.NodeHopCounter = int.Parse(response.Headers.GetValues("X-Chord-Hops").First());
+                }
+                return item;
             }
         }
 

@@ -15,7 +15,6 @@ namespace ChordDHT.DHT
         private readonly IStorageBackend StorageBackend;
         private readonly Router Router;
         protected Chord ChordProtocol;
-        public int LastRequestHops { get; private set; } = 0;
 
         public DHTServer(string nodeName, string[]? nodeList, IStorageBackend storageBackend, Router router, string prefix = "/")
             : base(nodeName, prefix)
@@ -81,9 +80,9 @@ namespace ChordDHT.DHT
         private async Task GetHandler(HttpListenerContext context, RequestVariables? variables)
         {
             var key = variables["key"];
-            IStoredItem? result = await Get(key);
+            var (result, hopCount) = await GetReal(key);
+            context.Response.AppendHeader("X-Chord-Hops", hopCount.ToString());
 
-            context.Response.AppendHeader("X-Chord-Hops", LastRequestHops.ToString());
             if (result != null)
             {
                 context.Response.ContentType = result.ContentType;
@@ -139,9 +138,10 @@ namespace ChordDHT.DHT
             var body = memoryStream.ToArray();
             var item = new StoredItem(context.Request.ContentType ?? "text/plain", body);
 
-            if (await Put(key, item))
+            var (result, hopCount) = await PutReal(key, item);
+            context.Response.AppendHeader("X-Chord-Hops", hopCount.ToString());
+            if (result)
             {
-                context.Response.AppendHeader("X-Chord-Hops", LastRequestHops.ToString());
                 new GenericStatusRequestHandler(200, "Ok").HandleRequest(context);
             }
             else
@@ -155,11 +155,12 @@ namespace ChordDHT.DHT
          * the DHT.
          */
         private async Task DeleteHandler(HttpListenerContext context, RequestVariables? variables)
-        { 
+        {
             var key = variables["key"];
-            if (await Remove(key))
+            var (result, hopCount) = await RemoveReal(key);
+            context.Response.AppendHeader("X-Chord-Hops", hopCount.ToString());
+            if (result)
             {
-                context.Response.AppendHeader("X-Chord-Hops", LastRequestHops.ToString());
                 new GenericStatusRequestHandler(200, "Ok").HandleRequest(context);
             } else
             {
@@ -169,13 +170,19 @@ namespace ChordDHT.DHT
 
         new public async Task<IStoredItem?> Get(string key)
         {
+            var (result, hopCount) = await GetReal(key);
+            return result;
+        }
+
+        new private async Task<(IStoredItem?, int)> GetReal(string key)
+        {
             var bestNode = ChordProtocol.Lookup(key);
             if (bestNode == NodeName)
             {
-                return await StorageBackend.Get(key);
+                return (await StorageBackend.Get(key), 0);
             } else
             {
-                var url = await FindNode(key);
+                var (url, hopCount) = await FindNode(key);
                 HttpResponseMessage response = await HttpClient.GetAsync(url);
                 if (response.IsSuccessStatusCode)
                 {
@@ -189,87 +196,111 @@ namespace ChordDHT.DHT
                     {
                         item = new StoredItem(await response.Content.ReadAsStringAsync());
                     }
-                    return item;
+                    item.NodeHopCounter = hopCount;
+                    return (item, hopCount);
                 } else
                 {
-                    return null;
+                    return (null, hopCount);
                 }
             }
         }
 
         new public async Task<bool> Put(string key, IStoredItem value)
         {
+            var (result, hopCount) = await PutReal(key, value);
+            return result;
+        }
+
+        new private async Task<(bool, int)> PutReal(string key, IStoredItem value)
+        {
             var bestNode = ChordProtocol.Lookup(key);
             if (bestNode == NodeName)
             {
-                return await StorageBackend.Put(key, value);
+                return (await StorageBackend.Put(key, value), 0);
             }
             else
             {
-                var nextUrl = await FindNode(key);
+                var (url, hopCount) = await FindNode(key);
+                value.NodeHopCounter = hopCount;
 
                 var requestBody = new ByteArrayContent(value.Data);
                 requestBody.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(value.ContentType);
 
-                var response = await HttpClient.PutAsync(nextUrl, requestBody);
+                var response = await HttpClient.PutAsync(url, requestBody);
                 if (response.IsSuccessStatusCode)
                 {
-                    return true;
+                    return (true, hopCount);
                 }
                 else
                 {
-                    throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
+                    throw new InvalidOperationException($"Invalid response from node at {url} (statusCode={response.StatusCode})");
                 }
             }
         }
 
         new public async Task<bool> Remove(string key)
         {
+            var (result, hopCount) = await RemoveReal(key);
+            return result;
+        }
+        new private async Task<(bool, int)> RemoveReal(string key)
+        {
             var bestNode = ChordProtocol.Lookup(key);
             if (bestNode == NodeName)
             {
-                return await StorageBackend.Remove(key);
+                return (await StorageBackend.Remove(key), 0);
             } else
             {
-                var url = await FindNode(key);
+                var (url, hopCount) = await FindNode(key);
                 var response = await HttpClient.DeleteAsync(url);
                 if (response.IsSuccessStatusCode)
                 {
-                    return true;
+                    return (true, hopCount);
                 }
                 else
                 {
-                    return false;
+                    return (false, hopCount);
                 }
             }
         }
 
         /**
          * Finds the node which is responsible for storing the key and
-         * returns the final direct URL for the key.
+         * returns a tuple with the final direct URL and the hop count.
          */
-        public async Task<string> FindNode(string key)
+        public async Task<(string, int)> FindNode(string key)
         {
-            LastRequestHops = 0;
             var bestNode = ChordProtocol.Lookup(key);
 
+            if (bestNode == NodeName)
+            {
+                throw new InvalidOperationException("Don't use FindNode() when the current node is the correct node");
+            }
+
+            int hopCount = 0;
             var nextUrl = $"http://{bestNode}{Prefix}{key}";
 
             // Find the node responsible for this key
             for (; ; )
             {
-                LastRequestHops++;
+                hopCount++;
                 var requestMessage = new HttpRequestMessage(HttpMethod.Options, nextUrl);
                 var response = await HttpClient.SendAsync(requestMessage);
 
                 if (response.IsSuccessStatusCode)
                 {
-                    return nextUrl;
+                    return (nextUrl, hopCount);
                 }
                 else if (response.StatusCode == HttpStatusCode.RedirectKeepVerb && response.Headers?.Location != null)
                 {
                     // The request should be repeated at another node
-                    nextUrl = response.Headers.Location?.ToString();
+                    if (response.Headers.Location == null)
+                    {
+                        throw new InvalidOperationException($"The node at {nextUrl} responded with a redirect but without a 'Location' header");
+                    } else
+                    {
+                        nextUrl = response.Headers.Location.ToString();
+                    }
                 }
                 else
                 {

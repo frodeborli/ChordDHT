@@ -12,5 +12,7 @@ namespace ChordDHT.DHT
         public byte[] Data { get; }
 
         public DateTime CreatedDate { get; }
+
+        public int? NodeHopCounter { get; set; }
     }
 }
