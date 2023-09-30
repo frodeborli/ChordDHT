@@ -30,8 +30,8 @@ namespace ChordDHT.DHT
         public async Task<IStoredItem?> Get(string key)
         {
             LastRequestHops = 0;
-            var bestNode = ChordProtocol.lookup(key);
-            if (bestNode == ChordProtocol.nodeName)
+            var bestNode = ChordProtocol.Lookup(key);
+            if (bestNode == ChordProtocol.NodeName)
             {
                 // This node is responsible for this key
                 return await StorageBackend.Get(key);
@@ -77,8 +77,8 @@ namespace ChordDHT.DHT
         public async Task<bool> Put(string key, IStoredItem value)
         {
             LastRequestHops = 0;
-            var bestNode = ChordProtocol.lookup(key);
-            if (bestNode == ChordProtocol.nodeName)
+            var bestNode = ChordProtocol.Lookup(key);
+            if (bestNode == ChordProtocol.NodeName)
             {
                 // This node is responsible for this key
                 return await StorageBackend.Put(key, value);
@@ -87,8 +87,8 @@ namespace ChordDHT.DHT
             {
                 var nextUrl = $"http://{bestNode}/storage/{key}";
 
-                var requestBody = new ByteArrayContent(value.data);
-                requestBody.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(value.contentType);
+                var requestBody = new ByteArrayContent(value.Data);
+                requestBody.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(value.ContentType);
 
                 // Find the node responsible for this key
                 for (; ; )
@@ -118,8 +118,8 @@ namespace ChordDHT.DHT
         public async Task<bool> Remove(string key)
         {
             LastRequestHops = 0;
-            var bestNode = ChordProtocol.lookup(key);
-            if (bestNode == ChordProtocol.nodeName)
+            var bestNode = ChordProtocol.Lookup(key);
+            if (bestNode == ChordProtocol.NodeName)
             {
                 // This node is responsible for this key
                 return await StorageBackend.Remove(key);

@@ -13,7 +13,8 @@ class Program
     public static void Main(string[] args)
     {
         ThreadPool.SetMinThreads(16, 64);
-        if (args.Length == 0) {
+        if (args.Length == 0)
+        {
             Console.WriteLine("Usage:");
             Console.WriteLine("  `chord serve <hostname> <port> [nodehost:node_port ...]`");
             Console.WriteLine("     Start a chord node and provide a list of other nodes:");
@@ -43,8 +44,8 @@ class Program
                 break;
         }
 
-        Console.WriteLine("Running for 5 minutes at most");
-        Task.Delay(300000).Wait();
+        Console.WriteLine("Running for 15 minutes at most");
+        Task.Delay(900000).Wait();
     }
 
     static void Serve(string[] args)
@@ -113,7 +114,7 @@ class Program
         var nodeList = new string[nodeCount];
         for (int i = 0; i < nodeCount; i++)
         {
-            nodeList[i] = args[i+1];
+            nodeList[i] = args[i + 1];
         }
         foreach (string n in nodeList)
         {
@@ -167,11 +168,12 @@ class Program
                     countHops(hopCount ?? 0);
                 }
             }
-            countEvent($"HTTP {(int) response.StatusCode} {response.ReasonPhrase}");
+            countEvent($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
             if (hopCount.HasValue)
             {
                 return $"{hopCount} hops";
-            } else
+            }
+            else
             {
                 return null;
             }
@@ -223,24 +225,11 @@ class Program
             return processHttpClientResponse(response);
         }, dumpExtraStatistics).Run(repetitions, workerThreads);
 
-        await new Benchmark("PUT requests for key 'hello' on random hosts", async () => {
-            var requestBody = new StringContent("Lorem Ipsum Dolor Sit Amet");
-            requestBody.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
-            var response = await httpClient.PutAsync(randomNodeFixedKey("hello"), requestBody);
-            return processHttpClientResponse(response);
-        }, dumpExtraStatistics).Run(repetitions, workerThreads);
-
         await new Benchmark("GET requests for random key on first host", async () => {
             var response = await httpClient.GetAsync(randomKeyFixedNode(nodeList[0]));
             return processHttpClientResponse(response);
         }, dumpExtraStatistics).Run(repetitions, workerThreads);
 
-        await new Benchmark("PUT requests for key 'hello' on random hosts", async () => {
-            var requestBody = new StringContent("Lorem Ipsum Dolor Sit Amet");
-            requestBody.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
-            var response = await httpClient.PutAsync(randomKeyFixedNode(nodeList[0]), requestBody);
-            return processHttpClientResponse(response);
-        }, dumpExtraStatistics).Run(repetitions, workerThreads);
     }
 
     static ulong hash(string key)

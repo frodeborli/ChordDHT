@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -27,6 +28,7 @@ namespace ChordDHT.Benchmark
             List<Task> tasks = new List<Task>();
             TimeSpan min = TimeSpan.FromSeconds(1000);
             TimeSpan max = TimeSpan.Zero;
+            ConcurrentBag<TimeSpan> measurements = new ConcurrentBag<TimeSpan>();
             sw.Start();
             for (int i = 0; i < workerCount; i++)
             {
@@ -40,6 +42,7 @@ namespace ChordDHT.Benchmark
                             await TestFunction();
                             isw.Stop();
                             long e = isw.ElapsedTicks;
+                            measurements.Add(isw.Elapsed);
                             lock (tasks)
                             {
                                 if (min > isw.Elapsed)
@@ -61,15 +64,53 @@ namespace ChordDHT.Benchmark
             }
             await Task.WhenAll(tasks);
             sw.Stop();
+
+            // Calculate Standard Deviation
+            double sum = 0;
+            int count = measurements.Count;
+
+            // Calculate the mean (average)
+            foreach (var timeSpan in measurements)
+            {
+                sum += timeSpan.TotalMilliseconds;
+            }
+            double mean = sum / count;
+
+            // Compute the sum of the squared differences from the mean
+            double sumOfSquaredDifferences = 0;
+            foreach (var timeSpan in measurements)
+            {
+                double difference = timeSpan.TotalMilliseconds - mean;
+                sumOfSquaredDifferences += difference * difference;
+            }
+
+            // Calculate the standard deviation
+            double standardDeviation = Math.Sqrt(sumOfSquaredDifferences / count);
+
+            // Percentile Calculation
+            var sortedMeasurements = measurements.OrderBy(ts => ts.TotalMilliseconds).ToList();
+
+
             Console.WriteLine(
                 $"RESULTS:\n" +
-                $" Repetitions: {repetitions * workerCount}\n" +
+                $" Repetitions: {measurements.Count}\n" +
                 $"  Total time: {sw.Elapsed,6}\n" +
                 $"     Minimum: {min,6}\n" +
                 $"     Maximum: {max,6}\n" +
-                $"     Average: {sw.ElapsedTicks / (repetitions * workerCount),6}\n" +
-                $""
+                $" Req per sec: {measurements.Count * 1000 / sw.ElapsedMilliseconds}\n" +
+                $"          SD: {standardDeviation}\n" +
+                $" Percentiles:"
                 );
+            double[] percentiles = { 99, 98, 95, 75, 50, 25, 10 }; // Add or remove desired percentiles
+            foreach (double percentile in percentiles)
+            {
+                int index = (int)Math.Ceiling((percentile / 100) * count) - 1;
+                TimeSpan valueAtPercentile = sortedMeasurements[index];
+                Console.WriteLine(
+                    $"        {percentile}th: {valueAtPercentile.TotalMilliseconds} milliseconds");
+            }
+            Console.WriteLine();
+
             if (ReportFunction != null)
             {
                 ReportFunction();
