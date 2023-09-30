@@ -13,7 +13,7 @@ namespace ChordDHT.Benchmark
         private readonly Func<Task<string?>> TestFunction;
         private readonly Action? ReportFunction;
 
-        public Benchmark(string name, Func<Task<string?>> testFunction, Action? reportFunction=null)
+        public Benchmark(string name, Func<Task<string?>> testFunction, Action? reportFunction = null)
         {
             Name = name;
             TestFunction = testFunction;
@@ -51,7 +51,9 @@ namespace ChordDHT.Benchmark
                                     max = isw.Elapsed;
                                 }
                             }
-                        } catch (Exception ex) {
+                        }
+                        catch (Exception ex)
+                        {
                             Console.WriteLine(ex.ToString());
                         }
                     }
@@ -150,10 +152,10 @@ namespace ChordDHT.Benchmark
             Console.WriteLine(
                 $"RESULTS:\n" +
                 $" Repetitions: {repetitions * workerCount}\n" +
-                $"  Total time: {TimeSpan.FromMilliseconds(totalTime), 6}\n" +
-                $"     Minimum: {TimeSpan.FromMilliseconds(minimum), 6}\n" +
-                $"     Maximum: {TimeSpan.FromMilliseconds(maximum), 6}\n" +
-                $"     Average: {TimeSpan.FromMilliseconds(totalTime / (repetitions * workerCount)), 6}\n" +
+                $"  Total time: {TimeSpan.FromMilliseconds(totalTime),6}\n" +
+                $"     Minimum: {TimeSpan.FromMilliseconds(minimum),6}\n" +
+                $"     Maximum: {TimeSpan.FromMilliseconds(maximum),6}\n" +
+                $"     Average: {TimeSpan.FromMilliseconds(totalTime / (repetitions * workerCount)),6}\n" +
                 $""
                 );
 
