@@ -108,8 +108,8 @@ class Program
             Console.WriteLine("Must benchmark at least one node");
             return;
         }
-        int repetitions = 8000;
-        int workerThreads = 2; // nodeCount;
+        int repetitions = 200;
+        int workerThreads = nodeCount * 8;
         var nodeList = new string[nodeCount];
         for (int i = 0; i < nodeCount; i++)
         {

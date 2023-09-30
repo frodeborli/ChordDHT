@@ -22,6 +22,59 @@ namespace ChordDHT.Benchmark
 
         public async Task Run(int repetitions, int workerCount)
         {
+            Console.WriteLine($"{Name} {repetitions} repetitions on {workerCount} worker threads");
+            Stopwatch sw = new Stopwatch();
+            List<Task> tasks = new List<Task>();
+            TimeSpan min = TimeSpan.FromSeconds(1000);
+            TimeSpan max = TimeSpan.Zero;
+            sw.Start();
+            for (int i = 0; i < workerCount; i++)
+            {
+                tasks.Add(Task.Run(async () => {
+                    Stopwatch isw = new Stopwatch();
+                    for (int j = 0; j < repetitions; j++)
+                    {
+                        try
+                        {
+                            isw.Restart();
+                            await TestFunction();
+                            isw.Stop();
+                            long e = isw.ElapsedTicks;
+                            lock (tasks)
+                            {
+                                if (min > isw.Elapsed)
+                                {
+                                    min = isw.Elapsed;
+                                }
+                                if (max < isw.Elapsed)
+                                {
+                                    max = isw.Elapsed;
+                                }
+                            }
+                        } catch (Exception ex) {
+                            Console.WriteLine(ex.ToString());
+                        }
+                    }
+                }));
+            }
+            await Task.WhenAll(tasks);
+            sw.Stop();
+            Console.WriteLine(
+                $"RESULTS:\n" +
+                $" Repetitions: {repetitions * workerCount}\n" +
+                $"  Total time: {sw.Elapsed,6}\n" +
+                $"     Minimum: {min,6}\n" +
+                $"     Maximum: {max,6}\n" +
+                $"     Average: {sw.ElapsedTicks / (repetitions * workerCount),6}\n" +
+                $""
+                );
+            if (ReportFunction != null)
+            {
+                ReportFunction();
+            }
+        }
+        public async Task RunOld(int repetitions, int workerCount)
+        {
             // Validate input parameters
             if (repetitions <= 0 || workerCount <= 0)
             {
@@ -57,10 +110,9 @@ namespace ChordDHT.Benchmark
                             innerStopwatch.Restart();
                             group = await TestFunction();
                             innerStopwatch.Stop();
-                            tTotalTime += innerStopwatch.ElapsedTicks;
-                            tMinimum = Math.Min(tMinimum, innerStopwatch.ElapsedTicks);
-                            tMaximum = Math.Max(tMaximum, innerStopwatch.ElapsedTicks);
-                            await Task.Yield();
+                            tTotalTime += innerStopwatch.ElapsedMilliseconds;
+                            tMinimum = Math.Min(tMinimum, innerStopwatch.ElapsedMilliseconds);
+                            tMaximum = Math.Max(tMaximum, innerStopwatch.ElapsedMilliseconds);
                             lock (totalTimeGrouped)
                             {
                                 if (!minimumGrouped.ContainsKey(group))
@@ -71,9 +123,10 @@ namespace ChordDHT.Benchmark
                                     totalTimeGrouped[group] = 0;
                                 }
                                 countGrouped[group]++;
-                                minimumGrouped[group] = Math.Min(minimumGrouped[group], innerStopwatch.ElapsedTicks);
-                                maximumGrouped[group] = Math.Max(maximumGrouped[group], innerStopwatch.ElapsedTicks);
-                                totalTimeGrouped[group] += innerStopwatch.ElapsedTicks;
+                                minimumGrouped[group] = Math.Min(minimumGrouped[group], innerStopwatch.ElapsedMilliseconds);
+                                maximumGrouped[group] = Math.Max(maximumGrouped[group], innerStopwatch.ElapsedMilliseconds);
+                                totalTimeGrouped[group] += innerStopwatch.ElapsedMilliseconds;
+
                             }
                         }
                         catch (Exception ex)
@@ -97,10 +150,10 @@ namespace ChordDHT.Benchmark
             Console.WriteLine(
                 $"RESULTS:\n" +
                 $" Repetitions: {repetitions * workerCount}\n" +
-                $"  Total time: {TimeSpan.FromTicks(totalTime), 6}\n" +
-                $"     Minimum: {TimeSpan.FromTicks(minimum), 6}\n" +
-                $"     Maximum: {TimeSpan.FromTicks(maximum), 6}\n" +
-                $"     Average: {TimeSpan.FromTicks(totalTime / (repetitions * workerCount)), 6}\n" +
+                $"  Total time: {TimeSpan.FromMilliseconds(totalTime), 6}\n" +
+                $"     Minimum: {TimeSpan.FromMilliseconds(minimum), 6}\n" +
+                $"     Maximum: {TimeSpan.FromMilliseconds(maximum), 6}\n" +
+                $"     Average: {TimeSpan.FromMilliseconds(totalTime / (repetitions * workerCount)), 6}\n" +
                 $""
                 );
 
@@ -109,10 +162,10 @@ namespace ChordDHT.Benchmark
                 Console.WriteLine(
                     $"  GROUPED BY {key} RESULTS:\n" +
                     $"     Instances: {countGrouped[key]}\n" +
-                    $"    Total time: {TimeSpan.FromTicks(totalTimeGrouped[key]),6}\n" +
-                    $"       Minimum: {TimeSpan.FromTicks(minimumGrouped[key]),6}\n" +
-                    $"       Maximum: {TimeSpan.FromTicks(maximumGrouped[key]),6}\n" +
-                    $"       Average: {TimeSpan.FromTicks(totalTimeGrouped[key] / countGrouped[key]),6}\n" +
+                    $"    Total time: {TimeSpan.FromMilliseconds(totalTimeGrouped[key]),6}\n" +
+                    $"       Minimum: {TimeSpan.FromMilliseconds(minimumGrouped[key]),6}\n" +
+                    $"       Maximum: {TimeSpan.FromMilliseconds(maximumGrouped[key]),6}\n" +
+                    $"       Average: {TimeSpan.FromMilliseconds(totalTimeGrouped[key] / countGrouped[key]),6}\n" +
                     $""
                     );
             }
