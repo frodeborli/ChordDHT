@@ -22,7 +22,8 @@ namespace ChordDHT.DHT
             Prefix = prefix;
             HttpClientHandler = new HttpClientHandler
             {
-                AllowAutoRedirect = false
+                AllowAutoRedirect = false,
+                MaxConnectionsPerServer = 256,
             };
             HttpClient = new HttpClient(HttpClientHandler);
             HttpClient.DefaultRequestHeaders.UserAgent.ParseAdd(primaryHostName.Replace(":", "/"));

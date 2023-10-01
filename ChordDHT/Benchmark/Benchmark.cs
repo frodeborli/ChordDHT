@@ -12,18 +12,22 @@ namespace ChordDHT.Benchmark
     {
         public readonly string Name;
         private readonly Func<Task<string?>> TestFunction;
-        private readonly Action? ReportFunction;
+        private readonly Func<Dictionary<string,string>?>? ReportFunction;
 
-        public Benchmark(string name, Func<Task<string?>> testFunction, Action? reportFunction = null)
+        public Benchmark(string name, Func<Task<string?>> testFunction, Func<Dictionary<string, string>?>? reportFunction = null)
         {
             Name = name;
             TestFunction = testFunction;
             ReportFunction = reportFunction;
         }
 
-        public async Task Run(int repetitions, int workerCount)
+        public async Task<Dictionary<string,string>> Run(int repetitions, int workerCount)
         {
+            Dictionary<string, string> results = new Dictionary<string, string>();
             Console.WriteLine($"{Name} {repetitions} repetitions on {workerCount} worker threads");
+            results.Add("title", Name);
+            results.Add("repetitions", repetitions.ToString());
+            results.Add("worker_count", workerCount.ToString());
             Stopwatch sw = new Stopwatch();
             List<Task> tasks = new List<Task>();
             TimeSpan min = TimeSpan.FromSeconds(1000);
@@ -43,17 +47,6 @@ namespace ChordDHT.Benchmark
                             isw.Stop();
                             long e = isw.ElapsedTicks;
                             measurements.Add(isw.Elapsed);
-                            lock (tasks)
-                            {
-                                if (min > isw.Elapsed)
-                                {
-                                    min = isw.Elapsed;
-                                }
-                                if (max < isw.Elapsed)
-                                {
-                                    max = isw.Elapsed;
-                                }
-                            }
                         }
                         catch (Exception ex)
                         {
@@ -68,11 +61,20 @@ namespace ChordDHT.Benchmark
             // Calculate Standard Deviation
             double sum = 0;
             int count = measurements.Count;
+            results.Add("repeats", count.ToString());
 
             // Calculate the mean (average)
             foreach (var timeSpan in measurements)
             {
                 sum += timeSpan.TotalMilliseconds;
+                if (timeSpan > max)
+                {
+                    max = timeSpan;
+                }
+                if (timeSpan < min)
+                {
+                    min = timeSpan;
+                }
             }
             double mean = sum / count;
 
@@ -101,6 +103,12 @@ namespace ChordDHT.Benchmark
                 $"          SD: {standardDeviation}\n" +
                 $" Percentiles:"
                 );
+
+            results.Add("total_time", sw.Elapsed.TotalMilliseconds.ToString());
+            results.Add("min_time", min.TotalMilliseconds.ToString());
+            results.Add("max_time", max.TotalMilliseconds.ToString());
+            results.Add("per_sec", (measurements.Count * 1000 / sw.ElapsedMilliseconds).ToString());
+            results.Add("sd", standardDeviation.ToString());
             double[] percentiles = { 99, 98, 95, 75, 50, 25, 10 }; // Add or remove desired percentiles
             foreach (double percentile in percentiles)
             {
@@ -108,13 +116,22 @@ namespace ChordDHT.Benchmark
                 TimeSpan valueAtPercentile = sortedMeasurements[index];
                 Console.WriteLine(
                     $"        {percentile}th: {valueAtPercentile.TotalMilliseconds} milliseconds");
+                results.Add($"{percentile}th_percentile", (valueAtPercentile.TotalMilliseconds).ToString());
             }
             Console.WriteLine();
 
             if (ReportFunction != null)
             {
-                ReportFunction();
+                var reportResults = ReportFunction();
+                if (reportResults != null)
+                {
+                    foreach (var key in reportResults.Keys) {
+                        results.Add(key, reportResults[key]);
+                    }
+                }
             }
+
+            return results;
         }
         public async Task RunOld(int repetitions, int workerCount)
         {

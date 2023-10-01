@@ -103,14 +103,16 @@ class Program
 
     static async void Benchmark(string[] args)
     {
+        List<Dictionary<string,string>> reports = new List<Dictionary<string, string>>();
+        
         var nodeCount = args.Length - 1;
         if (nodeCount < 1)
         {
             Console.WriteLine("Must benchmark at least one node");
             return;
         }
-        int repetitions = 200;
-        int workerThreads = nodeCount * 8;
+        int repetitions = 50;
+        int workerThreads = 1024;
         var nodeList = new string[nodeCount];
         for (int i = 0; i < nodeCount; i++)
         {
@@ -122,7 +124,10 @@ class Program
         }
         await Task.Delay(2000);
 
-        HttpClient httpClient = new HttpClient();
+        HttpClientHandler handler = new HttpClientHandler();
+        handler.MaxConnectionsPerServer = 256;
+        HttpClient httpClient = new HttpClient(handler);
+        httpClient.MaxResponseContentBufferSize = 4096;
         Random random = new Random();
         string[] keys = new string[10000];
         for (int i = 0; i < 10000; i++)
@@ -180,6 +185,7 @@ class Program
         };
         var dumpExtraStatistics = () =>
         {
+            Dictionary<string, string> results = new Dictionary<string, string>();
             Console.WriteLine(" HOP COUNTS:");
             int max = -1;
             for (int i = 0; i < 20; i++)
@@ -192,6 +198,7 @@ class Program
             for (int i = 0; i < max; i++)
             {
                 var hopCount = hopCounters.ContainsKey(i) ? hopCounters[i] : 0;
+                results.Add($"{i}_hops", hopCount.ToString());
                 Console.WriteLine($"  {i,2} hops: {hopCount,4}");
             }
             if (eventCounters.Count > 0)
@@ -200,36 +207,43 @@ class Program
                 Console.WriteLine(" OTHER COUNTERS:");
                 foreach (var key in eventCounters.Keys)
                 {
-                    Console.WriteLine($"  {key + ":",20}{eventCounters[key]}");
+                    Console.WriteLine($"  {key + ":",20} {eventCounters[key]}");
                 }
             }
             Console.WriteLine();
             hopCounters = new ConcurrentDictionary<int, int>();
             eventCounters = new ConcurrentDictionary<string, int>();
+            return results;
         };
 
-        await new Benchmark("GET requests for random keys on random hosts", async () => {
+        reports.Add(await new Benchmark("GET requests for random keys on random hosts", async () => {
             var response = await httpClient.GetAsync(randomNodeAndKey());
             return processHttpClientResponse(response);
-        }, dumpExtraStatistics).Run(repetitions, workerThreads);
+        }, dumpExtraStatistics).Run(repetitions, workerThreads));
 
-        await new Benchmark("PUT requests for random keys on random hosts", async () => {
+        reports.Add(await new Benchmark("PUT requests for random keys on random hosts", async () => {
             var requestBody = new StringContent("Lorem Ipsum Dolor Sit Amet");
             requestBody.Headers.ContentType = MediaTypeHeaderValue.Parse("text/plain");
             var response = await httpClient.PutAsync(randomNodeAndKey(), requestBody);
             return processHttpClientResponse(response);
-        }, dumpExtraStatistics).Run(repetitions, workerThreads);
+        }, dumpExtraStatistics).Run(repetitions, workerThreads));
 
-        await new Benchmark("GET requests for key 'hello' on random hosts", async () => {
-            var response = await httpClient.GetAsync(randomNodeFixedKey("hello"));
-            return processHttpClientResponse(response);
-        }, dumpExtraStatistics).Run(repetitions, workerThreads);
-
-        await new Benchmark("GET requests for random key on first host", async () => {
-            var response = await httpClient.GetAsync(randomKeyFixedNode(nodeList[0]));
-            return processHttpClientResponse(response);
-        }, dumpExtraStatistics).Run(repetitions, workerThreads);
-
+        // Generate CSV data
+        Console.WriteLine("CSV DATA:");
+        List<string> captions = new List<string>();
+        foreach (var report in reports)
+        {
+            foreach (var caption in report.Keys)
+            {
+                captions.Add(caption);
+            }
+            break;
+        }
+        Console.WriteLine(string.Join(";", captions));
+        foreach (var report in reports)
+        {
+            Console.WriteLine(string.Join(";", report.Values));
+        }
     }
 
     static ulong hash(string key)
