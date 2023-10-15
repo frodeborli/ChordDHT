@@ -15,17 +15,19 @@ namespace ChordDHT.Util
     {
         public readonly string Method;
         public readonly Regex Pattern;
+        public readonly int Priority;
         protected IRequestHandler RequestHandler;
 
-        public Route(string method, Regex pattern, IRequestHandler requestHandler)
+        public Route(string method, Regex pattern, IRequestHandler requestHandler, int priority = 0)
         {
-            this.Method = method.ToUpper();
-            this.Pattern = pattern;
-            this.RequestHandler = requestHandler;
+            Method = method.ToUpper();
+            Pattern = pattern;
+            RequestHandler = requestHandler;
+            Priority = priority;
         }
 
-        public Route(string method, string pattern, IRequestHandler requestHandler)
-            : this(method, new Regex(pattern), requestHandler) { }
+        public Route(string method, string pattern, IRequestHandler requestHandler, int priority = 0)
+            : this(method, new Regex(pattern), requestHandler, priority) { }
 
 
         public bool HandleRequest(HttpListenerContext context, RequestVariables? variables)

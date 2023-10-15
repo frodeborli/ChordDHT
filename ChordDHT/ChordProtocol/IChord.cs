@@ -8,7 +8,6 @@ namespace ChordDHT.ChordProtocol
 {
     interface IChord
     {
-        public bool IsReady();
         public string Lookup(string key);
     }
 }

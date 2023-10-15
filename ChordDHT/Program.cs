@@ -63,6 +63,12 @@ class Program
 
     }
 
+    /**
+     *  ChordDHT serve c3-20 8080 c3-21:8080 c3-22:8080 ...
+     *  blir til
+     *  ChordDHT serve c3-20 8080 <existing_network_to_join>
+     */
+
     static void Multiserve(string[] args)
     {
         var hostname = args[1];
@@ -268,7 +274,14 @@ class Program
         string nodeName = $"{hostname}:{port}";
 
         Router router = new Router();
-        DHTServer dhtServer = new DHTServer($"{hostname}:{port}", nodeList, new DictionaryStorageBackend(), router, "/storage/");
+        WebApp.Initialize(router);
+        DHTServer dhtServer = new DHTServer($"{hostname}:{port}", nodeList, new DictionaryStorageBackend(), "/");
+        dhtServer.RegisterRoutes(router);
+
+        /**
+         * Simulating crash of the server
+         */
+        SetupCrashHandling();
 
         Console.WriteLine($"Chord DHT: Listening on port {port}...");
         while (true)
@@ -279,6 +292,56 @@ class Program
         }
     }
 
+    static void SetupCrashHandling()
+    {
+        Route NodeInfoRoute = new Route("GET", $"/node-info", new RequestHandler(SimulatedCrashHandler), 100);
+        Route GetKeyRoute = new Route("GET", $"/storage/(?<key>\\w+)", new RequestHandler(SimulatedCrashHandler), 100);
+        Route PutKeyRoute = new Route("PUT", $"/storage/(?<key>\\w+)", new RequestHandler(SimulatedCrashHandler), 100);
+        Route DeleteKeyRoute = new Route("DELETE", $"/storage/(?<key>\\w+)", new RequestHandler(SimulatedCrashHandler), 100);
+        Route OptionsRoute = new Route("OPTIONS", $"/storage/(?<key>\\w+)", new RequestHandler(SimulatedCrashHandler), 100);
+
+        bool isSimulatingCrash = false;
+
+        WebApp.Instance.Router.AddRoute(new Route("GET", $"/sim-crash", new RequestHandler((context, variables) => {
+            if (isSimulatingCrash)
+            {
+                WebApp.Instance.RespondJson(context, "Already simulating a crash");
+            } else
+            {
+                WebApp.Instance.RespondJson(context, "Simulating a crash");
+                WebApp.Instance.Router.AddRoute(NodeInfoRoute);
+                WebApp.Instance.Router.AddRoute(GetKeyRoute);
+                WebApp.Instance.Router.AddRoute(PutKeyRoute);
+                WebApp.Instance.Router.AddRoute(DeleteKeyRoute);
+                WebApp.Instance.Router.AddRoute(OptionsRoute);
+                isSimulatingCrash = true;
+            }
+
+            return true;
+        })));
+        WebApp.Instance.Router.AddRoute(new Route("GET", $"/sim-recover", new RequestHandler((context, variables) => {
+            if (!isSimulatingCrash)
+            {
+                WebApp.Instance.RespondJson(context, "I wasn't simulating a crash. Perhaps I actually crashed?");
+            }
+            else
+            {
+                WebApp.Instance.RespondJson(context, "Stopping crash simulation");
+                WebApp.Instance.Router.RemoveRoute(NodeInfoRoute);
+                WebApp.Instance.Router.RemoveRoute(GetKeyRoute);
+                WebApp.Instance.Router.RemoveRoute(PutKeyRoute);
+                WebApp.Instance.Router.RemoveRoute(DeleteKeyRoute);
+                WebApp.Instance.Router.RemoveRoute(OptionsRoute);
+                isSimulatingCrash = false;
+
+                // Must rejoin the network
+            }
+
+            return true;
+        })));
+
+    }
+
     static void HandleContext(HttpListenerContext context, Router router)
     {
         RequestVariables requestVariables = new RequestVariables();
@@ -287,6 +350,12 @@ class Program
         {
             NotFoundHandler(context);
         }
+    }
+
+    static async Task SimulatedCrashHandler(HttpListenerContext context, RequestVariables? variables)
+    {
+        await Task.Delay(2000);
+        (new StatusCodeResponse(500, "Internal Server Error")).HandleRequest(context, variables);        
     }
 
     static bool NotFoundHandler(HttpListenerContext ctx)

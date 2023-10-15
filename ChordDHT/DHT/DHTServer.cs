@@ -7,10 +7,11 @@ namespace ChordDHT.DHT
     public class DHTServer : DHTClient
     {
         private readonly IStorageBackend StorageBackend;
-        private readonly Router Router;
         protected Chord ChordProtocol;
 
-        public DHTServer(string nodeName, string[]? nodeList, IStorageBackend storageBackend, Router router, string prefix = "/")
+        private Route NodeInfoRoute, GetKeyRoute, PutKeyRoute, DeleteKeyRoute, OptionsRoute;
+
+        public DHTServer(string nodeName, string[]? nodeList, IStorageBackend storageBackend, string prefix = "/")
             : base(nodeName, prefix)
         {
             ChordProtocol = new Chord(nodeName);
@@ -22,13 +23,30 @@ namespace ChordDHT.DHT
                 }
             }
             StorageBackend = storageBackend;
-            Router = router;
-            Router.AddRoute(new Route("GET", $"{Prefix}info", new RequestHandler(GetInfoHandler)));
-            Router.AddRoute(new Route("GET", $"{Prefix}neighbors", new RequestHandler(GetNeighborsHandler)));
-            Router.AddRoute(new Route("GET", $"{Prefix}(?<key>\\w+)", new RequestHandler(GetHandler)));
-            Router.AddRoute(new Route("PUT", $"{Prefix}(?<key>\\w+)", new RequestHandler(PutHandler)));
-            Router.AddRoute(new Route("DELETE", $"{Prefix}(?<key>\\w+)", new RequestHandler(DeleteHandler)));
-            Router.AddRoute(new Route("OPTIONS", $"{Prefix}(?<key>\\w+)", new RequestHandler(OptionsHandler)));
+
+            NodeInfoRoute = new Route("GET", $"{Prefix}node-info", new RequestHandler(GetNodeInfoHandler));
+            GetKeyRoute = new Route("GET", $"{Prefix}storage/(?<key>\\w+)", new RequestHandler(GetHandler));
+            PutKeyRoute = new Route("PUT", $"{Prefix}storage/(?<key>\\w+)", new RequestHandler(PutHandler));
+            DeleteKeyRoute = new Route("DELETE", $"{Prefix}storage/(?<key>\\w+)", new RequestHandler(DeleteHandler));
+            OptionsRoute = new Route("OPTIONS", $"{Prefix}storage/(?<key>\\w+)", new RequestHandler(OptionsHandler));
+        }
+
+        public void RegisterRoutes(Router router)
+        {
+            router.AddRoute(NodeInfoRoute);
+            router.AddRoute(GetKeyRoute);
+            router.AddRoute(PutKeyRoute);
+            router.AddRoute(DeleteKeyRoute);
+            router.AddRoute(OptionsRoute);
+        }
+
+        public void UnregisterRoutes(Router router)
+        {
+            router.RemoveRoute(NodeInfoRoute);
+            router.RemoveRoute(GetKeyRoute);
+            router.RemoveRoute(PutKeyRoute);
+            router.RemoveRoute(DeleteKeyRoute);
+            router.RemoveRoute(OptionsRoute);
         }
 
         public void JoinNetwork(string nodeName)
@@ -37,34 +55,19 @@ namespace ChordDHT.DHT
         }
 
         /**
-         * Handles requests to {Prefix}/info and returns some information about the
-         * node.
+         * Return node information
          */
-        private async Task GetInfoHandler(HttpListenerContext context, RequestVariables? variables)
+        private async Task GetNodeInfoHandler(HttpListenerContext context, RequestVariables? variables)
         {
             var info = new
             {
-                nodeId = ChordProtocol.NodeId,
-                nodeName = ChordProtocol.NodeName,
-                knownNodes = ChordProtocol.KnownNodes,
-                predecessorNode = ChordProtocol.PredecessorNode,
-                successorNode = ChordProtocol.SuccessorNode,
-                fingers = ChordProtocol.Fingers
+                node_hash = ChordProtocol.NodeId.ToString("X"),
+                node_name = ChordProtocol.NodeName,
+                others = ChordProtocol.KnownNodes,
+                predecessor = ChordProtocol.PredecessorNode,
+                successor = ChordProtocol.SuccessorNode,
             };
             await Send.JSON(context, info);
-        }
-
-        /**
-         * Handles GET requests to {Prefix}/neighbors and returns the predecessor node and
-         * successor node
-         */
-        private async Task GetNeighborsHandler(HttpListenerContext context, RequestVariables? variables)
-        {
-            await Send.JSON(context, new
-            {
-                predecessor = ChordProtocol.PredecessorNode,
-                successor = ChordProtocol.SuccessorNode
-            });
         }
 
         /**
@@ -89,7 +92,7 @@ namespace ChordDHT.DHT
             }
             else
             {
-                Router.SendPageNotFound(context);
+                WebApp.Instance.Router.SendPageNotFound(context);
             }
         }
 
@@ -237,6 +240,7 @@ namespace ChordDHT.DHT
             var (result, hopCount) = await RemoveReal(key);
             return result;
         }
+
         new private async Task<(bool, int)> RemoveReal(string key)
         {
             var bestNode = ChordProtocol.Lookup(key);

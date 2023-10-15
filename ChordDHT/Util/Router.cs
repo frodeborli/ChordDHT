@@ -10,9 +10,10 @@ namespace ChordDHT.Util
 {
     public class Router : IRequestHandler
     {
-        protected List<Route> routes = new List<Route>();
+        protected List<Route> Routes = new List<Route>();
         public IRequestHandler? NotFoundRequestHandler { get; private set; }
         public IRequestHandler? NotImplementedRequestHandler { get; private set; }
+        private bool RouteListIsDirty = false;
 
         public Router(IRequestHandler? notFoundHandler = null, IRequestHandler? notImplementedRequestHandler = null)
         {
@@ -44,12 +45,37 @@ namespace ChordDHT.Util
 
         public void AddRoute(Route route)
         {
-            routes.Add(route);
+            Routes.Add(route);
+            RouteListIsDirty = true;
+        }
+
+        public void RemoveRoute(Route route)
+        {
+            Routes.Remove(route);
+            RouteListIsDirty = true;
+        }
+
+        private void PrepareRouteList()
+        {
+            if (!RouteListIsDirty)
+            {
+                return;
+            }
+
+            Console.WriteLine("Sorting routes according to weight...");
+
+            Routes.Sort((a, b) => {
+                return b.Priority - a.Priority;
+            });
+
+            RouteListIsDirty = false;
         }
 
         public bool HandleRequest(HttpListenerContext context, RequestVariables? variables)
         {
-            foreach (Route route in routes)
+            PrepareRouteList();
+
+            foreach (Route route in Routes)
             {
                 if (route.HandleRequest(context, variables))
                 {
