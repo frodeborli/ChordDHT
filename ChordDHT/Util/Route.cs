@@ -1,63 +1,81 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace ChordDHT.Util
 {
-    public class Route : IRequestHandler
+    public class Route : IHttpRouter.Route
     {
-        public readonly string Method;
-        public readonly Regex Pattern;
-        public readonly int Priority;
-        protected IRequestHandler RequestHandler;
+        public RequestDelegate Handler { get; }
+        public int Priority { get; }
+        private Predicate<HttpContext> _Predicate;
+        private string _AsString;
 
-        public Route(string method, Regex pattern, IRequestHandler requestHandler, int priority = 0)
+        public Route(Predicate<HttpContext> predicate, RequestDelegate handler, int priority = 0)
         {
-            Method = method.ToUpper();
-            Pattern = pattern;
-            RequestHandler = requestHandler;
+            Handler = handler;
             Priority = priority;
+            _AsString = "Route(CustomPredicateFunction)";
+            _Predicate = predicate;
         }
 
-        public Route(string method, string pattern, IRequestHandler requestHandler, int priority = 0)
-            : this(method, new Regex(pattern), requestHandler, priority) { }
+        public Route(Func<Predicate<HttpContext>> predicateBuilder, RequestDelegate handler, int priority = 0)
+            : this(predicateBuilder(), handler, priority) { }
 
+        public Route(IEnumerable<string> methods, Regex pattern, RequestDelegate handler, int priority = 0)
+            : this(() => {
+                var _methods = new HashSet<string>();
+                foreach (var method in methods)
+                {
+                    _methods.Add(method.ToUpper());
+                }
+                return (context) =>
+                {
+                    if (context.Request.RawUrl == null)
+                    {
+                        return false;
+                    }
+                    if (_methods.Contains(context.Request.HttpMethod.ToUpper()))
+                    {
+                        var match = pattern.Match(context.Request.RawUrl);
+                        if (match.Success && match.Length == context.Request.RawUrl.Length)
+                        {
+                            foreach (var item in pattern.GetGroupNames())
+                            {
+                                if (item != null)
+                                {
+                                    context.Variables[item] = match.Groups[item].Value;
+                                }
+                            }
+                            return true;
+                        }
 
-        public bool HandleRequest(HttpListenerContext context, RequestVariables? variables)
+                    }
+                    return false;
+                };
+            }, handler, priority)
+        { }
+
+        public Route(string method, Regex pattern, RequestDelegate handler, int priority = 0)
+            : this(method.Split('|'), pattern, handler, priority) { }
+
+        public Route(IEnumerable<string> methods, string pattern, RequestDelegate handler, int priority = 0)
+            : this(methods, new Regex(pattern), handler, priority) { }
+        public Route(string method, string pattern, RequestDelegate handler, int priority = 0)
+            : this(method, new Regex(pattern), handler, priority) { }
+
+        public bool Predicate(HttpContext context)
         {
-            if (context.Request.HttpMethod.ToUpper() != this.Method.ToUpper()) {
-                return false;
-            }
-            if (context.Request.Url == null)
-            {
-                return false;
-            }
-            var match = this.Pattern.Match(context.Request.Url.AbsolutePath);
-            if (!match.Success)
-            {
-                return false;
-            }
-            var vars = new RequestVariables();
-            
-            foreach (string groupName in this.Pattern.GetGroupNames())
-            {
-                if (int.TryParse(groupName, out _)) continue; // Skip numeric group names
-                vars[groupName] = match.Groups[groupName].Value;
-            }
-
-            return this.RequestHandler.HandleRequest(context, vars);
+            return _Predicate(context);
         }
 
         public override string ToString()
         {
-            return $"Route({Method} {Pattern}";
+            return _AsString;
         }
     }
 }

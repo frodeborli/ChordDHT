@@ -8,81 +8,112 @@ using System.Threading.Tasks;
 
 namespace ChordDHT.Util
 {
-    public class Router : IRequestHandler
+    public class Router : IHttpRouter
     {
-        protected List<Route> Routes = new List<Route>();
-        public IRequestHandler? NotFoundRequestHandler { get; private set; }
-        public IRequestHandler? NotImplementedRequestHandler { get; private set; }
-        private bool RouteListIsDirty = false;
+        private List<IHttpRouter.Route> Routes = new List<IHttpRouter.Route>();
+        private bool RouteListNeedsSorting = false;
+        private WebApp WebApp;
 
-        public Router(IRequestHandler? notFoundHandler = null, IRequestHandler? notImplementedRequestHandler = null)
+        public Router(WebApp webApp)
         {
-            NotFoundRequestHandler = notFoundHandler;
-            NotImplementedRequestHandler = notImplementedRequestHandler;
+            WebApp = webApp;
         }
 
-        public void SendPageNotFound(HttpListenerContext context)
+        public async Task<bool> TryHandleRequest(HttpContext context)
         {
-            if (NotFoundRequestHandler != null)
+            var handler = GetHandlerFor(context);
+            if (handler == null)
             {
-                NotFoundRequestHandler.HandleRequest(context);
-            } else
-            {
-                (new GenericStatusRequestHandler(HttpStatusCode.NotFound, "Not found")).HandleRequest(context);
+                return false;
+            }
+            Console.WriteLine("Awaiting handler");
+            await handler(context);
+            Console.WriteLine("Handler done");
+            return true;
+        }
+
+        public RequestDelegate RequestHandler {
+            get {
+                return async (HttpContext context) =>
+                {
+                    var handler = this.GetHandlerFor(context);
+                    if (handler != null)
+                    {
+                        await handler(context);
+                    } else
+                    {
+                        await context.Send.NotFound();
+                    }
+                };
             }
         }
 
-        public void SendNotImplemented(HttpListenerContext context)
-        {
-            if (NotImplementedRequestHandler != null)
-            {
-                NotImplementedRequestHandler.HandleRequest(context);
-            } else
-            {
-                (new GenericStatusRequestHandler(HttpStatusCode.NotImplemented, "Not implemented")).HandleRequest(context);
-            }
-        }
-
-        public void AddRoute(Route route)
+        public void AddRoute(IHttpRouter.Route route)
         {
             Routes.Add(route);
-            RouteListIsDirty = true;
+            RouteListNeedsSorting = true;
         }
 
-        public void RemoveRoute(Route route)
+        public void AddRoute(IEnumerable<IHttpRouter.Route> routes)
+        {
+            foreach (var route in routes)
+            {
+                AddRoute(route);
+            }
+        }
+
+        public void RemoveRoute(IHttpRouter.Route route)
         {
             Routes.Remove(route);
-            RouteListIsDirty = true;
+            RouteListNeedsSorting = true;
         }
 
-        private void PrepareRouteList()
+        public void RemoveRoute(IEnumerable<IHttpRouter.Route> routes)
+        { 
+            foreach (var route in routes)
+            {
+                RemoveRoute(route);
+            }
+            RouteListNeedsSorting = true;
+        }
+
+        private void SortRoutes()
         {
-            if (!RouteListIsDirty)
+            if (!RouteListNeedsSorting)
             {
                 return;
             }
-
-            Console.WriteLine("Sorting routes according to weight...");
 
             Routes.Sort((a, b) => {
                 return b.Priority - a.Priority;
             });
 
-            RouteListIsDirty = false;
+            RouteListNeedsSorting = false;
         }
 
-        public bool HandleRequest(HttpListenerContext context, RequestVariables? variables)
+        public IHttpRouter.Route? GetRouteFor(HttpContext context)
         {
-            PrepareRouteList();
+            SortRoutes();
 
-            foreach (Route route in Routes)
+            foreach (var route in Routes)
             {
-                if (route.HandleRequest(context, variables))
+                if (route.Predicate(context))
                 {
-                    return true;
+                    return route;
                 }
             }
-            return false;
+
+            return default;
+        }
+
+        public RequestDelegate? GetHandlerFor(HttpContext context)
+        {
+            var route = GetRouteFor(context);
+            if (route == null)
+            {
+                return null;
+            }
+            return route.Handler;
         }
 
     }

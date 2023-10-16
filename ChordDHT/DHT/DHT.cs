@@ -63,7 +63,7 @@ namespace ChordDHT.DHT
                         nextUrl = response.Headers.Location?.ToString();
                     } else
                     {
-                        throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
+                        throw new InvalidOperationException($"Invalid response from 'GET {nextUrl}' (statusCode={response.StatusCode})");
                     }
                 }
             }
@@ -109,7 +109,7 @@ namespace ChordDHT.DHT
                     }
                     else
                     {
-                        throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
+                        throw new InvalidOperationException($"Invalid response from 'PUT {nextUrl}' (statusCode={response.StatusCode})");
                     }
                 }
             }
@@ -151,7 +151,7 @@ namespace ChordDHT.DHT
                     }
                     else
                     {
-                        throw new InvalidOperationException($"Invalid response from node at {nextUrl} (statusCode={response.StatusCode})");
+                        throw new InvalidOperationException($"Invalid response from 'DELETE {nextUrl}' (statusCode={response.StatusCode})");
                     }
                 }
             }

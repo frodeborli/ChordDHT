@@ -16,8 +16,8 @@ class Program
         if (args.Length == 0)
         {
             Console.WriteLine("Usage:");
-            Console.WriteLine("  `chord serve <hostname> <port> [nodehost:node_port ...]`");
-            Console.WriteLine("     Start a chord node and provide a list of other nodes:");
+            Console.WriteLine("  `chord serve <hostname> <port> [existing_node:port]`");
+            Console.WriteLine("     Start a chord node and optionally join an existing network.");
             Console.WriteLine("  `chord multiserve <hostname> <start_port> <nodes_to_start>`");
             Console.WriteLine("     Start multiple nodes on a single server.");
             Console.WriteLine("     nodes_to_start is the total number of nodes, minimum 1.");
@@ -52,14 +52,10 @@ class Program
     {
         var hostname = args[1];
         var port = int.Parse(args[2]);
-        var nodeCount = args.Length - 3 + 1;
-        var nodeList = new string[nodeCount];
-        nodeList[0] = $"{hostname}:{port}";
-        for (int i = 3; i < args.Length; i++)
-        {
-            nodeList[i - 2] = args[i];
-        }
-        RunWebServer(hostname, port, nodeList);
+
+        var nodeToJoin = args[3] ?? null;
+
+        Task.Run(async () => await RunWebServer(hostname, port, nodeToJoin));
 
     }
 
@@ -87,21 +83,35 @@ class Program
         }
         Task[] tasks = new Task[nodeCount];
 
-        Console.WriteLine("Starting instances...");
-
-        for (int i = 0; i < nodeCount; i++)
+        Console.WriteLine("Starting first instance...");
+        tasks[0] = Task.Run(async () =>
         {
-            int portNumber = port + i;
-            tasks[i] = Task.Run(() =>
+            try
+            {
+                await RunWebServer(hostname, port, null);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ERROR IN PRIMARY NODE: {ex.GetType()}: {ex.Message}\n{ex}");
+            }
+            Console.WriteLine($"Instance at {hostname}:{port} terminated");
+        });
+
+        var primaryNode = $"{hostname}:{port}";
+        for (int i = 1; i < nodeCount; i++)
+        {
+            var portNumber = port + i;
+            tasks[i] = Task.Run(async () =>
             {
                 try
                 {
-                    RunWebServer(hostname, portNumber, nodeList);
+                    await RunWebServer(hostname, portNumber, primaryNode);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"{ex.GetType()}: {ex.Message}");
+                    Console.WriteLine($"Program.cs: {portNumber}: {ex.GetType()}: {ex.Message}\n{ex}");
                 }
+                Console.WriteLine($"Instance at {hostname}:{portNumber} terminated");
             });
 
         }
@@ -252,12 +262,7 @@ class Program
         }
     }
 
-    static ulong hash(string key)
-    {
-        return Chord.DefaultHashFunction(key);
-    }
-
-    static void RunWebServer(string hostname, int port, string[] nodeList)
+    static async Task RunWebServer(string hostname, int port, string? nodeToJoin)
     {
         HttpListener listener = new HttpListener();
         listener.Prefixes.Add($"http://{hostname}:{port}/");
@@ -273,101 +278,77 @@ class Program
         }
         string nodeName = $"{hostname}:{port}";
 
-        Router router = new Router();
-        WebApp.Initialize(router);
-        DHTServer dhtServer = new DHTServer($"{hostname}:{port}", nodeList, new DictionaryStorageBackend(), "/");
-        dhtServer.RegisterRoutes(router);
+        var webApp = new WebApp();
+        webApp.Router.AddRoute(new Route("GET", "/", async context => {
+            await context.Send.Ok("Hello World!");
+        }));
+        DHTServer dhtServer = new DHTServer($"{hostname}:{port}", new DictionaryStorageBackend(), webApp, "/");
+
+        /**
+         * Handle joining an existing network
+         */
+        if (nodeToJoin != null)
+        {
+            Console.WriteLine($"Joining network at {nodeToJoin}...");
+            await dhtServer.JoinNetwork(nodeToJoin);
+        }
 
         /**
          * Simulating crash of the server
          */
-        SetupCrashHandling();
+        SetupCrashHandling(webApp);
 
-        Console.WriteLine($"Chord DHT: Listening on port {port}...");
-        while (true)
-        {
-            HttpListenerContext context = listener.GetContext();
-            // Console.WriteLine($"HTTP/{context.Request.ProtocolVersion} {context.Request.Headers["User-Agent"]} {context.Request.HttpMethod} http://{hostname}:{port}{context.Request.RawUrl}");
-            HandleContext(context, router);
-        }
+        await webApp.Run(listener);
     }
 
-    static void SetupCrashHandling()
+    static void SetupCrashHandling(WebApp webApp)
     {
-        Route NodeInfoRoute = new Route("GET", $"/node-info", new RequestHandler(SimulatedCrashHandler), 100);
-        Route GetKeyRoute = new Route("GET", $"/storage/(?<key>\\w+)", new RequestHandler(SimulatedCrashHandler), 100);
-        Route PutKeyRoute = new Route("PUT", $"/storage/(?<key>\\w+)", new RequestHandler(SimulatedCrashHandler), 100);
-        Route DeleteKeyRoute = new Route("DELETE", $"/storage/(?<key>\\w+)", new RequestHandler(SimulatedCrashHandler), 100);
-        Route OptionsRoute = new Route("OPTIONS", $"/storage/(?<key>\\w+)", new RequestHandler(SimulatedCrashHandler), 100);
+        Route NodeInfoRoute = new Route("GET", $"/node-info", new RequestDelegate(SimulatedCrashHandler), 100);
+        Route GetKeyRoute = new Route("GET", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100);
+        Route PutKeyRoute = new Route("PUT", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100);
+        Route DeleteKeyRoute = new Route("DELETE", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100);
+        Route OptionsRoute = new Route("OPTIONS", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100);
 
         bool isSimulatingCrash = false;
 
-        WebApp.Instance.Router.AddRoute(new Route("GET", $"/sim-crash", new RequestHandler((context, variables) => {
+        webApp.Router.AddRoute(new Route("GET", $"/sim-crash", async context => {
             if (isSimulatingCrash)
             {
-                WebApp.Instance.RespondJson(context, "Already simulating a crash");
+                webApp.RespondJson(context, "Already simulating a crash");
             } else
             {
-                WebApp.Instance.RespondJson(context, "Simulating a crash");
-                WebApp.Instance.Router.AddRoute(NodeInfoRoute);
-                WebApp.Instance.Router.AddRoute(GetKeyRoute);
-                WebApp.Instance.Router.AddRoute(PutKeyRoute);
-                WebApp.Instance.Router.AddRoute(DeleteKeyRoute);
-                WebApp.Instance.Router.AddRoute(OptionsRoute);
+                webApp.Router.AddRoute(NodeInfoRoute);
+                webApp.Router.AddRoute(GetKeyRoute);
+                webApp.Router.AddRoute(PutKeyRoute);
+                webApp.Router.AddRoute(DeleteKeyRoute);
+                webApp.Router.AddRoute(OptionsRoute);
                 isSimulatingCrash = true;
+                await context.Send.JSON("Simulating a crash");
             }
-
-            return true;
-        })));
-        WebApp.Instance.Router.AddRoute(new Route("GET", $"/sim-recover", new RequestHandler((context, variables) => {
+        }));
+        webApp.Router.AddRoute(new Route("GET", $"/sim-recover", async context => {
             if (!isSimulatingCrash)
             {
-                WebApp.Instance.RespondJson(context, "I wasn't simulating a crash. Perhaps I actually crashed?");
+                await context.Send.JSON("I wasn't simulating a crash. Perhaps I actually crashed?");
             }
             else
             {
-                WebApp.Instance.RespondJson(context, "Stopping crash simulation");
-                WebApp.Instance.Router.RemoveRoute(NodeInfoRoute);
-                WebApp.Instance.Router.RemoveRoute(GetKeyRoute);
-                WebApp.Instance.Router.RemoveRoute(PutKeyRoute);
-                WebApp.Instance.Router.RemoveRoute(DeleteKeyRoute);
-                WebApp.Instance.Router.RemoveRoute(OptionsRoute);
+                webApp.Router.RemoveRoute(NodeInfoRoute);
+                webApp.Router.RemoveRoute(GetKeyRoute);
+                webApp.Router.RemoveRoute(PutKeyRoute);
+                webApp.Router.RemoveRoute(DeleteKeyRoute);
+                webApp.Router.RemoveRoute(OptionsRoute);
                 isSimulatingCrash = false;
-
-                // Must rejoin the network
+                await context.Send.JSON("Stopping crash simulation");
             }
-
-            return true;
-        })));
+        }));
 
     }
 
-    static void HandleContext(HttpListenerContext context, Router router)
-    {
-        RequestVariables requestVariables = new RequestVariables();
-
-        if (!router.HandleRequest(context, requestVariables))
-        {
-            NotFoundHandler(context);
-        }
-    }
-
-    static async Task SimulatedCrashHandler(HttpListenerContext context, RequestVariables? variables)
+    static async Task SimulatedCrashHandler(HttpContext context)
     {
         await Task.Delay(2000);
-        (new StatusCodeResponse(500, "Internal Server Error")).HandleRequest(context, variables);        
-    }
-
-    static bool NotFoundHandler(HttpListenerContext ctx)
-    {
-        string responseString = $"The URL {WebUtility.HtmlEncode(ctx.Request.Url?.ToString())} Was Not Found";
-        byte[] buffer = System.Text.Encoding.UTF8.GetBytes(responseString);
-        ctx.Response.StatusCode = 404;
-        ctx.Response.ContentLength64 = buffer.Length;
-        Stream output = ctx.Response.OutputStream;
-        output.Write(buffer, 0, buffer.Length);
-        output.Close();
-        return true;
+        await context.Send.InternalServerError();
     }
 
 }

@@ -1,4 +1,5 @@
-﻿using System.Security.Cryptography;
+﻿using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace ChordDHT.ChordProtocol
@@ -15,37 +16,67 @@ namespace ChordDHT.ChordProtocol
         public ulong Start;
 
         public string[] Fingers { get; private set; }
-        public List<string> KnownNodes { get; protected set; }
+        private HashSet<string> _KnownNodes;
+        public string[] KnownNodes
+        {
+            get
+            {
+                return _KnownNodes.ToArray();
+            }
+        }
+
         public string SuccessorNode { get; private set; }
         public string PredecessorNode { get; private set; }
 
-        private Func<string, ulong> HashFunction;
-        private int FingerCount;
-        private bool FingerTableUpdateScheduled = false;
+        public Func<string, ulong> Hash { get; private set; }
 
-        public Chord(string nodeName, Func<string, ulong> hashFunction = null)
+        private int FingerCount;
+
+        /**
+         * Lock the fingers table
+         */
+        private object FingerLock;
+
+        public Chord(string nodeName, Func<string, ulong>? hashFunction = null)
         {
+            this.FingerLock = new object();
+            Hash = hashFunction ?? DefaultHashFunction;
+
             this.NodeName = nodeName;
-            NodeId = (hashFunction ?? DefaultHashFunction)(nodeName);
+            NodeId = Hash(nodeName);
             Start = this.NodeId + 1;
             PredecessorNode = nodeName;
             SuccessorNode = nodeName;
 
-            if (hashFunction == null)
-            {
-                this.HashFunction = DefaultHashFunction;
-            } else
-            {
-                this.HashFunction = hashFunction;
-            }
-
             this.FingerCount = (int)Math.Log2(ulong.MaxValue);
             this.Fingers = new string[FingerCount];
-            this.KnownNodes = new List<string> { this.NodeName };
-            for (int i = 0; i < Fingers.Length; i++) {
-                var finger = Fingers[i];
-            }
+            this._KnownNodes = new HashSet<string> { this.NodeName };
             UpdateFingersTable();
+            Console.WriteLine($"Successor node: {SuccessorNode}");
+        }
+
+        public void AddNode(IEnumerable<string> nodes)
+        {
+            int addedCount = 0;
+            lock (_KnownNodes)
+            {
+                foreach (var node in nodes)
+                {
+                    if (node == null)
+                    {
+                        throw new ArgumentNullException(nameof(nodes), "Found a null string in AddNode");
+                    }
+                    if (_KnownNodes.Add(node))
+                    {
+                        Console.WriteLine($"{NodeName}: Added node '{node}' to list of known nodes");
+                        addedCount++;
+                    }
+                }
+            }
+            if (addedCount > 0)
+            {
+                UpdateFingersTable();
+            }
         }
 
         /**
@@ -55,13 +86,7 @@ namespace ChordDHT.ChordProtocol
          */
         public void AddNode(string nodeName)
         {
-            if (this.KnownNodes.IndexOf(nodeName) >= 0)
-            {
-                // Ignore duplicate add
-                return;
-            }
-            this.KnownNodes.Add(nodeName);
-            UpdateFingersTable();
+            AddNode(new string[] { nodeName });
         }
 
         /**
@@ -70,15 +95,37 @@ namespace ChordDHT.ChordProtocol
          * value of the node name - but removing it ensures that the
          * node will not end up in the finger table in the future.
          */
+        public void RemoveNode(IEnumerable<string> nodes)
+        {
+            int removedCount = 0;
+            lock (_KnownNodes)
+            {
+                foreach (var node in nodes)
+                {
+                    if (node == null)
+                    {
+                        throw new ArgumentNullException(nameof(nodes), "Found a null string in RemoveNode");
+                    }
+                    if (node == NodeName)
+                    {
+                        throw new InvalidOperationException($"Illegal to remove self from known nodes list");
+                    }
+                    if (_KnownNodes.Remove(node))
+                    {
+                        Console.WriteLine($"{NodeName}: Removed node '{node}' from list of known nodes");
+                        removedCount++;
+                    }
+                }
+            }
+            if (removedCount > 0)
+            {
+                UpdateFingersTable();
+            }
+        }
+
         public void RemoveNode(string nodeName)
         {
-            if (this.KnownNodes.IndexOf(nodeName) == -1)
-            {
-                // Ignore nodes that don't exist
-                return;
-            }
-            this.KnownNodes.Remove(nodeName);
-            UpdateFingersTable();
+            RemoveNode(new string[] { nodeName });
         }
 
         /**
@@ -86,12 +133,6 @@ namespace ChordDHT.ChordProtocol
          */
         public string Lookup(string key)
         {
-            if (FingerTableUpdateScheduled)
-            {
-                // Immediately update the finger table
-                UpdateFingersTableReal();
-            }
-
             ulong keyHash = Hash(key);
             ulong distance;
 
@@ -112,15 +153,8 @@ namespace ChordDHT.ChordProtocol
             }
 
             int fingerIndex = (int)Math.Floor(Math.Log2(distance));
-            return Fingers[Math.Min(fingerIndex, Fingers.Length - 1)];
-        }
 
-        /**
-         * Generate a hash from a string
-         */
-        public ulong Hash(string key)
-        {
-            return (this.HashFunction)(key);
+            return Fingers[Math.Min(fingerIndex, Fingers.Length - 1)];
         }
 
         /**
@@ -137,77 +171,62 @@ namespace ChordDHT.ChordProtocol
          */
         private void UpdateFingersTable()
         {
-            if (!FingerTableUpdateScheduled)
+            // Avoid problems with concurrent processes causing the fingers table to be updated
+            lock (FingerLock)
             {
-                FingerTableUpdateScheduled = true;
-                Task.Run(() =>
+                var knownNodes = new List<string>(_KnownNodes.ToArray());
+
+                // We need a sorted list of nodes, so we can easily find our predecessor
+                knownNodes.Sort((a, b) =>
                 {
-                    try
-                    {
-                        UpdateFingersTableReal();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"{ex.GetType()}: {ex.Message}");
-                    }
+                    var ah = Hash(a) - NodeId;
+                    var bh = Hash(b) - NodeId;
+                    if (ah < bh)
+                        return -1;
+                    else if (ah > bh)
+                        return 1;
+                    else
+                        return 0;
                 });
-            }
-        }
 
-        /**
-         * Actually update the fingers table.
-         */
-        private void UpdateFingersTableReal()
-        {
-            if (!FingerTableUpdateScheduled)
-            {
-                return;
-            }
-            FingerTableUpdateScheduled = false;
+                Console.WriteLine($"{string.Join(",", knownNodes)}");
 
-            // Ensure known nodes is sorted according to their node position
-            KnownNodes.Sort((a, b) =>
-            {
-                var ah = Hash(a);
-                var bh = Hash(b);
-                if (ah < bh)
-                    return -1;
-                else if (ah > bh)
-                    return 1;
-                else
-                    return 0;
-            });
+                // Update the predecessor node
+                PredecessorNode = knownNodes[Wrap(knownNodes.IndexOf(this.NodeName) - 1, knownNodes.Count)];
 
-            // Update the predecessor node
-            var predecessorIndex = Wrap(KnownNodes.IndexOf(this.NodeName) - 1, KnownNodes.Count);
-            PredecessorNode = KnownNodes[predecessorIndex];
-            Start = Hash(PredecessorNode) + 1;
+                // Our start hash is the predecessor node hash + 1
+                Start = Hash(PredecessorNode) + 1;
 
-            ulong fingerOffset = 1;
-            // Assign each node to the correct finger O(n^2) where n = number of fingers
-            for (uint i = 0; i < Fingers.Length; i++)
-            {
-                var startValue = this.NodeId + fingerOffset;
-                var nextValue = startValue + fingerOffset - 1;
-                fingerOffset *= 2;
-
-                // Find the nearest node
-                var distance = ulong.MaxValue;
-                for (int j = 0; j < KnownNodes.Count; j++)
+                int bestNodeIndex = 0;
+                // Find the best node for each finger table entry
+                for (int i = 0; i < Fingers.Length; i++)
                 {
-                    var nodeHash = Hash(KnownNodes[j]);
-                    var candidateDistance = nodeHash - startValue;
-                    if (candidateDistance < distance)
+                    var fingerOffset = NodeId + Math.Pow(2, i);
+
+                    string? bestNode = null;
+                    ulong bestDistance = ulong.MaxValue;
+                    for (int j = 0; j < knownNodes.Count; j++)
                     {
-                        distance = candidateDistance;
-                        Fingers[i] = KnownNodes[j];
+                        ulong candidateHash = Hash(knownNodes[j]);
+                        ulong distance = candidateHash - bestDistance;
+                        if (bestNode == null || distance < bestDistance)
+                        {
+                            bestNode = knownNodes[j];
+                            bestDistance = distance;
+                        }
                     }
+
+                    Fingers[i] = bestNode;
                 }
 
-            }
+                if (Fingers[0] == null)
+                {
+                    Console.WriteLine("FOUND A NULL FINGER!");
+                }
 
-            // Update the successor node
-            SuccessorNode = Fingers[0];
+                // Update the successor node
+                SuccessorNode = Fingers[0];
+            }
         }
 
         /**
@@ -222,12 +241,19 @@ namespace ChordDHT.ChordProtocol
             }
             else
             {
-                return hash < ceiling || hash > floor;
+                return hash <= ceiling || hash >= floor;
             }
         }
 
+        /**
+         * The default hash function if no custom hash function is provided
+         */
         public static ulong DefaultHashFunction(string key)
         {
+            if ( key == null )
+            {
+                throw new ArgumentNullException(nameof(key), "Key cannot be null");
+            }
             using (SHA1 sha1 = SHA1.Create())
             {
                 byte[] bytes = Encoding.UTF8.GetBytes(key);

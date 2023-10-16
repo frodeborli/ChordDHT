@@ -35,6 +35,10 @@
     "Benchmark using a single node": {
       "commandName": "Project",
       "commandLineArgs": "benchmark localhost:8080"
+    },
+    "Joining 1 node": {
+      "commandName": "Project",
+      "commandLineArgs": "multiserve localhost 8080 2"
     }
   }
 }

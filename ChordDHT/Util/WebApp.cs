@@ -11,31 +11,69 @@ namespace ChordDHT.Util
     public class WebApp
     {
         public Router Router { get; private set; }
-        private static WebApp? _Instance = null;
+        private CancellationTokenSource? CancellationTokenSource = null;
 
-        public static WebApp Instance
+        public WebApp(
+            Router? router = null
+            )
         {
-            get
+            Router = router ?? new Router(this);
+        }
+
+        public async Task Run(HttpListener httpListener, CancellationToken cancellationToken=default)
+        {
+            if (this.CancellationTokenSource != null)
             {
-                if (_Instance == null)
+                throw new InvalidOperationException("WebApp is already running");
+            }
+
+            this.CancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+            while (!this.CancellationTokenSource.IsCancellationRequested)
+            {
+                var context = await httpListener.GetContextAsync();
+                Console.WriteLine($"Received a request to {context.Request.RawUrl}");
+                if (context != null)
                 {
-                    throw new InvalidOperationException("Responder has not been initialized");
+                    var task = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            Console.WriteLine("Creating HttpContext");
+                            var httpContext = new HttpContext(this, context, CancellationTokenSource.Token);
+
+                            Console.WriteLine("TryHandleRequest");
+                            if (!await Router.TryHandleRequest(httpContext))
+                            {
+                                Console.WriteLine("TryHandleRequest failed, sending NotFound");
+                                await httpContext.Send.NotFound();
+                            } else
+                            {
+                                Console.WriteLine("Response should have been sent now");
+                            }
+                        } catch (Exception ex)
+                        {
+                            if (System.Diagnostics.Debugger.IsAttached)
+                            {
+                                System.Diagnostics.Debugger.Break();
+                            }
+                            else
+                            {
+                                Console.WriteLine(ex);
+                            }
+                        }
+                        // Ensure the response is closed when we get to this point
+                        context.Response.Close();
+                    });
+
+
                 }
-                return _Instance;
             }
         }
 
-        public static void Initialize(Router Router)
-        {
-            _Instance = new WebApp(Router);
-        }
+        
 
-        public WebApp(Router router)
-        {
-            Router = router;
-        }
-
-        public void RespondJson(HttpListenerContext context, object? data)
+        public void RespondJson(HttpContext context, object? data)
         {
             var response = context.Response;
             response.ContentType = "application/json";
