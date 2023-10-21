@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Fubber;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -76,6 +77,11 @@ namespace ChordProtocol
 
         public Node? FindSuccessor(ulong hash)
         {
+            if (this.Count == 0)
+            {
+                return null;
+            }
+
             int min = 0, max = this.Count - 1;
             Node? successor = null;
 
@@ -109,9 +115,10 @@ namespace ChordProtocol
             return successor;
         }
 
-        public Node? FindSuccessor(string nodeName) => FindSuccessor(HashFunction(nodeName));
+        //public Node? FindSuccessor(string nodeName) => FindSuccessor(HashFunction(nodeName));
 
-        public Node? FindSuccessor(Node node) => FindSuccessor(node.Hash);
+        //public Node? FindSuccessor(Node node) => FindSuccessor(node.Hash);
+
 
         private class NodeComparer : IComparer<string>
         {

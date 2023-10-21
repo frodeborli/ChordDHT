@@ -10,6 +10,8 @@ namespace Fubber
 {
     public class WebApp
     {
+        public event Func<Task> AppStarted;
+        public event Func<Task> AppStopping;
         public Uri[] Prefixes { get; private set; }
         public Router Router { get; private set; }
 
@@ -20,12 +22,15 @@ namespace Fubber
 
         private HttpListener HttpListener;
 
+        private Dev.LoggerContext Logger;
+
         /// <summary>
         /// Constructor
         /// </summary>
         /// <param name="prefixes">Prefixes for the application such as 'http://hostname:80/'</param>
         public WebApp(Uri[] prefixes)
         {
+            Logger = Dev.Logger("WebApp");
             Prefixes = prefixes;
 
             HttpListener = new HttpListener();
@@ -60,10 +65,23 @@ namespace Fubber
                 throw new InvalidOperationException("WebApp is already running");
             }
 
-            Dev.Info("Launching application");
+            Logger.Info("Launching application");
 
             CancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
+            HttpListener.Start();
+            CancellationTokenSource.Token.Register(() => {
+                Logger.Info("Terminating application");
+            });
+
+            if (AppStarted != null)
+            {
+                Logger.Debug("Running AppStarted events");
+                await InvokeAllAsync(AppStarted);
+                Logger.Debug("Finished running AppStarted events");
+            }
+
+            Logger.Info($"Waiting for connections on {string.Join(", ", Prefixes.Select(p => $"{p}").ToArray())}");
             while (!this.CancellationTokenSource.IsCancellationRequested)
             {
                 var context = await HttpListener.GetContextAsync();
@@ -83,20 +101,34 @@ namespace Fubber
                         }
                         catch (Exception ex)
                         {
-                            if (System.Diagnostics.Debugger.IsAttached)
-                            {
-                                System.Diagnostics.Debugger.Break();
-                            }
-                            else
-                            {
-                                Dev.Error($"{context.Request.HttpMethod} {context.Request.RawUrl} {context.Response.StatusCode} {context.Response.StatusDescription}\n{ex}");
-                            }
+                            Dev.Error($"{context.Request.HttpMethod} {context.Request.RawUrl} {context.Response.StatusCode} {context.Response.StatusDescription}\n{ex}");
                         }
                         // Ensure the response is closed when we get to this point
                         context.Response.Close();
                     });
                 }
             }
+            if (AppStarted != null)
+            {
+                Logger.Debug("Running AppStopping events");
+                await InvokeAllAsync(AppStopping);
+                Logger.Debug("Finished running AppStopping events");
+            }
+            HttpListener.Stop();
+        }
+
+        private async Task InvokeAllAsync(Func<Task>? eventEmitter)
+        {
+            if (eventEmitter == null)
+            {
+                return;
+            }
+            var tasks = new List<Task>();
+            foreach (Func<Task> handler in eventEmitter.GetInvocationList().Cast<Func<Task>>())
+            {
+                tasks.Add(handler());
+            }
+            await Task.WhenAll(tasks);
         }
     }
 }

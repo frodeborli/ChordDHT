@@ -1,48 +1,64 @@
-﻿using System;
+﻿using Fubber;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace ChordProtocol
 {
     public sealed class Message : EventArgs
     {
+        [JsonPropertyName("source")]
         public Node Source { get; private set; }
-        public Guid Id { get; private set; }
+
+        [JsonPropertyName("name")]
         public string Name { get; private set; }
-        private IDictionary<string, object?> _Data;
 
-        private Message()
-        { }
+        [JsonPropertyName("values")]
+        public IDictionary<string, object?> Values { get; private set; }
 
-        public Message(Node source, string name, (string, object?)[] values)
+        [JsonPropertyName("id")]
+        public Guid Id { get; private set; }
+
+        [JsonConstructor]
+        public Message(Node source, string name, IDictionary<string, object?>? values = default, Guid? id = default)
         {
             Source = source;
-            Id = Guid.NewGuid();
+            Id = id ?? Guid.NewGuid();
             Name = name;
-            _Data = new Dictionary<string, object?>();
-            foreach (var (key, value) in values)
+            Values = new Dictionary<string, object?>();
+            if (values != null)
             {
-                _Data[key] = FilterValue(value);
+                foreach (var kvp in values)
+                {
+                    Values[kvp.Key] = kvp.Value;
+                }
             }
         }
 
-        public Message(Node source, string name, IEnumerable<KeyValuePair<string, object?>> values)
-            : this(source, name, values.Select(kv => (kv.Key, kv.Value)).ToArray()) { }
+        public Message Response(Node responseNode, IDictionary<string, object?>? values = default)
+        {
+            return new Message(responseNode, Name, values, Id);
+        }
 
         public object? this[string key]
         {
             get
             {
-                return _Data[key] ?? null;
+                return Values[key] ?? null;
+            }
+            set
+            {
+                Values[key] = value;
             }
         }
 
         public Message Clone(Node? source=null, string? name = null, IEnumerable<KeyValuePair<string, object>>? values = null)
         {
-            var data = new Dictionary<string, object?>(_Data);
+            var data = new Dictionary<string, object?>(Values);
             if (values != null)
             {
                 foreach (var (key, value) in values)
@@ -51,21 +67,6 @@ namespace ChordProtocol
                 }
             }
             return new Message(source ?? Source, name ?? Name, data);
-        }
-
-        public string Serialize()
-        {
-            return JsonSerializer.Serialize(this);
-        }
-
-        public static Message Deserialize(string serializedMessage)
-        {
-            var message = JsonSerializer.Deserialize<Message>(serializedMessage);
-            if (message == null)
-            {
-                throw new NotSupportedException("Deserialization failed");
-            }
-            return message;
         }
 
         private static object? FilterValue(object? value)

@@ -1,10 +1,6 @@
 ﻿using System.Collections.Concurrent;
-using System.Diagnostics.Metrics;
-using System.Net;
 using System.Net.Http.Headers;
-using System.Text.Encodings.Web;
 using ChordDHT.Benchmark;
-using ChordDHT.ChordProtocol;
 using ChordDHT.DHT;
 using Fubber;
 
@@ -25,6 +21,8 @@ class Program
             Console.WriteLine("     Run benchmarks against a list of nodes.");
             return;
         }
+
+        Dev.Debug($"Launched with arguments: {string.Join(" ", args)}");
 
         switch (args[0])
         {
@@ -50,13 +48,36 @@ class Program
 
     static void Serve(string[] args)
     {
+        if (args.Length < 4)
+        {
+            SyntaxError("At least 3 arguments required");
+            return;
+        }
         var hostname = args[1];
         var port = int.Parse(args[2]);
+        var nodeName = args[3] ?? null;
+        string? nodeToJoin = null;
+        if (args.Length > 4)
+        {
+            nodeToJoin = args[4];
+        }
 
-        var nodeToJoin = args[3] ?? null;
+        if (nodeName == null)
+        {
+            SyntaxError("Required argument 3 (node name) not provided");
+            return;
+        }
 
-        Task.Run(async () => await RunWebServer(hostname, port, nodeToJoin));
+        Dev.Debug($"Launched with arguments hostname={hostname} port={port} nodeName={nodeName} nodeToJoin={nodeToJoin}");
 
+        Task.Run(async () => await RunWebServer(hostname, port, nodeName, nodeToJoin));
+        Dev.Debug("RunWebServer done");
+
+        void SyntaxError(string message)
+        {
+            Dev.Error(message);
+            Dev.Info($"Syntax: {args[0]} <hostname> <port number> <node name> [node to join]");
+        }
     }
 
     /**
@@ -75,12 +96,17 @@ class Program
             Console.WriteLine("Must run at least one node");
             return;
         }
+
         var nodeList = new string[nodeCount];
         nodeList[0] = $"{hostname}:{port}";
         for (int i = 1; i < nodeCount; i++)
         {
             nodeList[i] = $"{hostname}:{port + i}";
         }
+
+        Dev.Info($"Node list: {string.Join(" ", nodeList)}");
+
+
         Task[] tasks = new Task[nodeCount];
 
         Console.WriteLine("Starting first instance...");
@@ -88,7 +114,7 @@ class Program
         {
             try
             {
-                await RunWebServer(hostname, port, null);
+                await RunWebServer(hostname, port, $"{nodeList[0]}");
             }
             catch (Exception ex)
             {
@@ -100,12 +126,13 @@ class Program
         var primaryNode = $"{hostname}:{port}";
         for (int i = 1; i < nodeCount; i++)
         {
+            var nodeName = nodeList[i];
             var portNumber = port + i;
             tasks[i] = Task.Run(async () =>
             {
                 try
                 {
-                    await RunWebServer(hostname, portNumber, primaryNode);
+                    await RunWebServer(hostname, portNumber, nodeName, primaryNode);
                 }
                 catch (Exception ex)
                 {
@@ -258,45 +285,51 @@ class Program
         }
     }
 
-    static async Task RunWebServer(string hostname, int port, string? nodeToJoin)
+    static async Task RunWebServer(string hostname, int port, string nodeName, string? nodeToJoin=null)
     {
-        var nodeName = $"{hostname}:{port}";
-        var dhtServer = new DHTServer(nodeName, new DictionaryStorageBackend());
-
-        Dev.Info($"Starting DHTServer");
-
-        dhtServer.Router.AddRoute(new Route("GET", "/", async context => {
-            await context.Send.Ok("Hello World!");
-        }));
-        dhtServer.Router.AddRoute(new Route("GET", "/stream", async context =>
+        try
         {
-            await context.Send.EventSource(async (sendEvent) =>
+            if (nodeName==null) throw new NullReferenceException(nameof(nodeName));
+            Dev.Info($"Starting DHTServer (hostname={hostname} port={port} nodeName={nodeName} nodeToJoin={nodeToJoin})");
+            var dhtServer = new DHTServer(nodeName, new DictionaryStorageBackend());
+
+
+            dhtServer.Router.AddRoute(new Route("GET", "/", async context => {
+                await context.Send.Ok("Hello World!");
+            }));
+            dhtServer.Router.AddRoute(new Route("GET", "/stream", async context =>
             {
-                sendEvent("text-chunk", "Hello", null);
-                await Task.Delay(1000);
-                sendEvent("text-chunk", ", World", null);
-                await Task.Delay(500);
-                sendEvent("text-chunk", "!", null);
-            });
-        }));
+                await context.Send.EventSource(async (sendEvent) =>
+                {
+                    sendEvent("text-chunk", "Hello", null);
+                    await Task.Delay(1000);
+                    sendEvent("text-chunk", ", World", null);
+                    await Task.Delay(500);
+                    sendEvent("text-chunk", "!", null);
+                });
+            }));
 
-        /**
-         * Simulating crash of the server
-         */
-        SetupCrashHandling(dhtServer);
+            /**
+             * Simulating crash of the server
+             */
+            SetupCrashHandling(dhtServer);
 
-        var runTask = dhtServer.Run();
+            var runTask = dhtServer.Run();
 
-        /**
-         * Handle joining an existing network
-         */
-        if (nodeToJoin != null)
+            /**
+             * Handle joining an existing network
+             */
+            if (nodeToJoin != null)
+            {
+                Dev.Info($"Requesting to join chord network via {nodeToJoin}");
+                await dhtServer.JoinNetwork(nodeToJoin);
+            }
+
+            await runTask;
+        } catch (Exception ex)
         {
-            Dev.Info($"Requesting to join chord network via {nodeToJoin}");
-            await dhtServer.JoinNetwork(nodeToJoin);
+            Dev.Error($"Got exception:\n{ex}");
         }
-
-        await runTask;
     }
 
     static void SetupCrashHandling(WebApp webApp)

@@ -8,11 +8,10 @@ namespace ChordProtocol
 {
     public interface IChordNetworkAdapter
     {
-        // Event to notify when a message is received
-        event EventHandler<Message>? MessageReceived;
-
         // Method to send a message
-        Task<Message> SendMessageAsync(Node sender, Node receiver, Message message);
+        Task<Message> SendMessageAsync(Node receiver, Message message);
+
+        public void SetRequestHandler(Func<Message, Task<Message>> handler);
 
         // Lifecycle management
         Task StartAsync();

@@ -1,8 +1,5 @@
-﻿using ChordDHT.ChordProtocol;
-using ChordDHT.Fubber;
-using ChordProtocol;
+﻿using ChordProtocol;
 using Fubber;
-using System;
 using System.Net;
 using System.Text.Json;
 
@@ -12,14 +9,14 @@ namespace ChordDHT.DHT
     {
         private readonly string NodeName;
         private readonly IStorageBackend StorageBackend;
-        protected Chord ChordProtocol;
+        protected Chord Chord;
         private bool IsPartOfNetwork = false;
 
         // If a node is in the process of joining
         protected string? JoiningNode = null;
 
-        private Dev.LoggerContext Logger;
-        private DHTNetworkAdapter DHTNetworkAdapter;
+        public Dev.LoggerContext Logger;
+        private DHTNetworkAdapter NetworkAdapter;
 
 
         public DHTServer(string nodeName, IStorageBackend storageBackend, string prefix = "/")
@@ -28,9 +25,8 @@ namespace ChordDHT.DHT
             NodeName = nodeName;
             Logger = Dev.Logger($"DHTServer {nodeName}");
             StorageBackend = storageBackend;
-            DHTNetworkAdapter = new DHTNetworkAdapter(this);
-            ChordProtocol = new Chord(nodeName, DHTNetworkAdapter);
-
+            NetworkAdapter = new DHTNetworkAdapter(this);
+            Chord = new Chord(nodeName, NetworkAdapter);
             Router.AddRoute(new Route[] {
                 new Route("GET", $"/node-info", GetNodeInfoHandler),
                 new Route("GET", $"/storage/(?<key>[^/]+)", GetHandler),
@@ -41,88 +37,17 @@ namespace ChordDHT.DHT
                 new Route("POST", $"/leave", LeaveHandler),
                 new Route("POST", $"/request-join", RequestJoinHandler)
             });
-            Logger.Debug("Constructed");
         }
 
-        private string NodeUrl(Node node, string endpoint)
+        public Task JoinNetwork(string nodeName) => Chord.JoinNetwork(nodeName);
+        public Task LeaveNetwork() => Chord.LeaveNetwork();
+
+        private string NodeUrl(string nodeName, string endpoint)
         {
-            return $"http://{node.Name}{endpoint}";
+            return $"http://{nodeName}{endpoint}";
         }
 
-        public async Task<bool> JoinNetwork(string masterNode)
-        {
-            if (IsPartOfNetwork)
-            {
-                return false;
-            }
-            Logger.Debug("Joining network {masterNode}");
-
-            /**
-             * Joining an existing network:
-             * 
-             * 1. OK Contact an existing node.
-             * 2. OK Find my successor node.
-             * 3. Request that the successor node take this node in as it's new predecessor.
-             * 4. TODO Get a copy of all keys that will be stored by this node.
-             * 5. TODO Notify the network about my presence.
-             */
-
-            // Since we are not already part of the network, we can't actually
-            // query the network. Therefore we pretend to be part of the network
-            // by replacing the ChordProtocol instance while we get the information
-            // we need to join the network in the best possible way possible.
-            ChordProtocol = new Chord(masterNode, new DHTNetworkAdapter(this), ChordProtocol.HashFunction);
-
-            Logger.Debug("Searching for successor");
-            // The successor is the node that would be responsible for storing the
-            // key for our node.
-            var ourSuccessor = await FindNode(ChordProtocol.Node.Name);
-
-            Logger.Debug($"Found successor {ourSuccessor}, getting node info...");
-
-            // Query the successor node to get useful information for joining
-            var successorInfo = await GetNodeInfo(ourSuccessor);
-
-            Logger.Debug($"Got successor info\n{Dev.FormatLong(successorInfo)}");
-
-            // Learn about any existing nodes that we can find
-            ChordProtocol.AddNode(successorInfo.Predecessor);
-            ChordProtocol.AddNode(successorInfo.Successor);
-            ChordProtocol.AddNode(successorInfo.NodeName);
-            foreach (var nodeName in successorInfo.KnownNodes)
-            {
-                ChordProtocol.AddNode(nodeName);
-            }
-
-            var newChord = new Chord(NodeName, DHTNetworkAdapter, ChordProtocol.HashFunction);
-            foreach (var node in ChordProtocol.KnownNodes)
-            {
-                newChord.AddNode(node.Name);
-            }
-
-            Logger.Debug($"Requesting to become the predecessor node for {ourSuccessor}");
-
-            var response = await HttpClient.PostAsync(NodeUrl(ourSuccessor, "request-join"), new FormUrlEncodedContent(new Dictionary<string, string> {
-                { "NodeName", NodeName }
-            }));
-
-            Console.WriteLine($"Changes needing to be done for {newChord.NodeName}:\n" +
-                $" - Set our predecessor = {newChord.PredecessorNode}\n" +
-                $" - Set our successor = {newChord.SuccessorNode}\n");
-
-            // TODO FIRST: Copy all keys from them to us, when the keys belong to us.
-            // TODO AFTER: Ask if we can replace their predecessor with ourselves
-            return true;
-        }
-
-        public async Task<bool> LeaveNetwork()
-        {
-            if (!IsPartOfNetwork)
-            {
-                return false;
-            }
-            return true;
-        }
+        private string NodeUrl(Node node, string endpoint) => NodeUrl(node.Name, endpoint);
 
         private async Task RequestJoinHandler(HttpContext context)
         {
@@ -131,8 +56,6 @@ namespace ChordDHT.DHT
                 await context.Send.Conflict("Another node is currently in the process of joining");
                 return;
             }
-
-
 
             await context.Send.NotImplemented();
         }
@@ -145,7 +68,7 @@ namespace ChordDHT.DHT
             var nodeInfo = JsonSerializer.Deserialize<NodeInfo>(jsonString);
             if (nodeInfo == null)
             {
-                throw new InvalidDataException($"Received invalid data from 'http://{nodeName}{Prefix}node-info'");
+                throw new InvalidDataException($"Received invalid data from 'http://{nodeName}/node-info'");
             }
             return nodeInfo;
         }
@@ -157,11 +80,11 @@ namespace ChordDHT.DHT
         {
             await context.Send.JSON(new NodeInfo
             {
-                NodeHash = ChordProtocol.Node.Hash.ToString("X"),
-                NodeName = ChordProtocol.Node.Name,
-                KnownNodes = ChordProtocol.KnownNodes.Select(n => n.Name).ToArray(),
-                Predecessor = ChordProtocol.PredecessorNode.Name,
-                Successor = ChordProtocol.SuccessorNode.Name,
+                NodeHash = Chord.Node.Hash.ToString("X"),
+                NodeName = Chord.Node.Name,
+                KnownNodes = Chord.KnownNodes.Select(n => n.Name).ToArray(),
+                Predecessor = Chord.PredecessorNode.Name,
+                Successor = Chord.SuccessorNode.Name,
             });
         }
 
@@ -171,7 +94,7 @@ namespace ChordDHT.DHT
          */
         private async Task GetHandler(HttpContext context)
         {
-            var key = context.Request.QueryString.Get("key") ?? string.Empty;
+            var key = context.RouteVariables["key"];
             var (result, hopCount) = await GetReal(key);
             context.Response.AppendHeader("X-Chord-Hops", hopCount.ToString());
 
@@ -197,14 +120,14 @@ namespace ChordDHT.DHT
         private async Task OptionsHandler(HttpContext context)
         {
             var key = context.RouteVariables["key"];
-            var nodeName = ChordProtocol.Lookup(key);
-            if (nodeName == NodeName)
+            var node = Chord.Lookup(key);
+            if (node.Name == NodeName)
             {
                 // This node is responsible for the key
                 await context.Send.JSON(true);
             } else
             {
-                await context.Send.TemporaryRedirect($"http://{nodeName}{Prefix}{key}");
+                await context.Send.TemporaryRedirect(NodeUrl(node, $"/storage/{key}"));
             }
         }
 
@@ -214,6 +137,7 @@ namespace ChordDHT.DHT
          */
         private async Task JoinHandler(HttpContext context)
         {
+            throw new NotImplementedException("JoinHandler is not implemented");
             if (IsPartOfNetwork)
             {
                 await context.Send.Conflict("Already part of a chord network");
@@ -225,13 +149,14 @@ namespace ChordDHT.DHT
                 return;
             }
             string nprime = context.RouteVariables["nprime"];
-            if (await JoinNetwork(nprime))
+
+            if (Chord.IsNetworked)
             {
-                await context.Send.JSON($"Network of '{nprime}' joined");
-            } else
-            {
-                await context.Send.Conflict("Unable to join chord network");
+                await context.Send.Conflict("Already part of a network");
             }
+
+            await Chord.JoinNetwork(nprime);
+            await context.Send.JSON($"Network of '{nprime}' joined");
         }
 
         /**
@@ -246,10 +171,8 @@ namespace ChordDHT.DHT
                 await context.Send.Conflict("Not currently part of any network");
                 return;
             }
-            if (await LeaveNetwork())
-            {
-                await context.Send.Ok($"Left the chord network");
-            }
+            await Chord.LeaveNetwork();
+            await context.Send.Ok($"Left the chord network");            
         }
 
         /**
@@ -303,19 +226,22 @@ namespace ChordDHT.DHT
 
         new public async Task<IStoredItem?> Get(string key)
         {
+            if (key == null) throw new NullReferenceException(nameof(key));
             var (result, hopCount) = await GetReal(key);
             return result;
         }
 
         new private async Task<(IStoredItem?, int)> GetReal(string key)
         {
-            var bestNode = ChordProtocol.Lookup(key);
-            if (bestNode == NodeName)
+            if (key == null) throw new NullReferenceException(nameof(key));
+            var bestNode = Chord.Lookup(key);
+            if (bestNode == Chord.Node)
             {
+                Logger.Debug($"Getting from storage backend the key {key}");
                 return (await StorageBackend.Get(key), 0);
             } else
             {
-                var (url, hopCount) = await FindTarget(key);
+                var (url, hopCount) = await QueryKeyWithHopCount(key);
                 HttpResponseMessage response = await HttpClient.GetAsync(url);
                 if (response.IsSuccessStatusCode)
                 {
@@ -346,14 +272,14 @@ namespace ChordDHT.DHT
 
         new private async Task<(bool, int)> PutReal(string key, IStoredItem value)
         {
-            var bestNode = ChordProtocol.Lookup(key);
-            if (bestNode == NodeName)
+            var bestNode = Chord.Lookup(key);
+            if (bestNode == Chord.Node)
             {
                 return (await StorageBackend.Put(key, value), 0);
             }
             else
             {
-                var (url, hopCount) = await FindTarget(key);
+                var (url, hopCount) = await QueryKeyWithHopCount(key);
                 value.NodeHopCounter = hopCount;
 
                 var requestBody = new ByteArrayContent(value.Data);
@@ -379,13 +305,13 @@ namespace ChordDHT.DHT
 
         new private async Task<(bool, int)> RemoveReal(string key)
         {
-            var bestNode = ChordProtocol.Lookup(key);
-            if (bestNode == NodeName)
+            var bestNode = Chord.Lookup(key);
+            if (bestNode == Chord.Node)
             {
                 return (await StorageBackend.Remove(key), 0);
             } else
             {
-                var (url, hopCount) = await FindTarget(key);
+                var (url, hopCount) = await QueryKeyWithHopCount(key);
                 var response = await HttpClient.DeleteAsync(url);
                 if (response.IsSuccessStatusCode)
                 {
@@ -398,9 +324,9 @@ namespace ChordDHT.DHT
             }
         }
 
-        public async Task<string> FindNode(string key)
+        public async Task<string> QueryKey(string key)
         {
-            var (url, hopCount) = await FindTarget(key);
+            var (url, hopCount) = await QueryKeyWithHopCount(key);
             var uri = new Uri(url);
             return uri.Host + ":" + uri.Port;
         }
@@ -409,13 +335,13 @@ namespace ChordDHT.DHT
          * Finds the url which is responsible for storing the key and
          * returns a tuple with the final direct URL and the hop count.
          */
-        public async Task<(string, int)> FindTarget(string key)
+        public async Task<(string, int)> QueryKeyWithHopCount(string key)
         {
-            var bestNode = ChordProtocol.Lookup(key);
+            var bestNode = Chord.Lookup(key);
 
-            if (bestNode == ChordProtocol.Node)
+            if (bestNode == Chord.Node)
             {
-                throw new InvalidOperationException("Don't use FindNode() when the current node is the correct node");
+                throw new InvalidOperationException("Don't use QueryKeyWithHopCount() when the current node is the correct node");
             }
 
             int hopCount = 0;
@@ -446,7 +372,7 @@ namespace ChordDHT.DHT
                         var uri = new Uri(nextUrl);
                         var discoveredNode = uri.Host + ":" + uri.Port;
                         Dev.Debug($"Detected a node named '{discoveredNode}' when performing a lookup");
-                        ChordProtocol.AddNode(discoveredNode);
+                        Chord.AddNode(discoveredNode);
                     }
                 }
                 else

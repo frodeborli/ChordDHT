@@ -15,9 +15,5 @@ namespace Fubber
             Context = context;
         }
 
-        public string FormField(string fieldName)
-        {
-
-        }
     }
 }

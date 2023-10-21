@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 
 namespace Fubber
 {
+    /*
     public class JsonObject : IDictionary<object, object>
     {
         private object _Data;
@@ -120,4 +121,5 @@ namespace Fubber
             return key?.ToString() ?? "";
         }
     }
+    */
 }

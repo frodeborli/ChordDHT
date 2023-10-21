@@ -1,10 +1,11 @@
-﻿using ChordDHT.ChordProtocol;
+﻿using ChordProtocol;
 using System.Net;
 using System.Text;
 using System.Text.Json;
 
 namespace ChordDHT.DHT
 {
+    /*
     public class DHT : IStorageBackend
     {
         private Chord ChordProtocol;
@@ -31,7 +32,7 @@ namespace ChordDHT.DHT
         {
             LastRequestHops = 0;
             var bestNode = ChordProtocol.Lookup(key);
-            if (bestNode == ChordProtocol.NodeName)
+            if (bestNode == ChordProtocol.Node)
             {
                 // This node is responsible for this key
                 return await StorageBackend.Get(key);
@@ -78,7 +79,7 @@ namespace ChordDHT.DHT
         {
             LastRequestHops = 0;
             var bestNode = ChordProtocol.Lookup(key);
-            if (bestNode == ChordProtocol.NodeName)
+            if (bestNode == ChordProtocol.Node)
             {
                 // This node is responsible for this key
                 return await StorageBackend.Put(key, value);
@@ -119,7 +120,7 @@ namespace ChordDHT.DHT
         {
             LastRequestHops = 0;
             var bestNode = ChordProtocol.Lookup(key);
-            if (bestNode == ChordProtocol.NodeName)
+            if (bestNode == ChordProtocol.Node)
             {
                 // This node is responsible for this key
                 return await StorageBackend.Remove(key);
@@ -157,4 +158,5 @@ namespace ChordDHT.DHT
             }
         }
     }
+    */
 }

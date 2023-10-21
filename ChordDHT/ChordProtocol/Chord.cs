@@ -25,6 +25,8 @@ namespace ChordProtocol
         public Node SuccessorNode { get; private set; }
         public Node PredecessorNode { get; private set; }
 
+        public bool IsNetworked { get; private set; } = false;
+
         public Func<byte[], ulong> HashFunction { get; private set; }
 
         // Using ulong hashes which is 64 bits, therefore the finger table is constant 64 bit
@@ -36,24 +38,73 @@ namespace ChordProtocol
         // Network adapter is used for inter node communications and must be provided
         private IChordNetworkAdapter NetworkAdapter;
 
+        private Dev.LoggerContext Logger;
+
 
         public Chord(string nodeName, IChordNetworkAdapter networkAdapter, Func<byte[], ulong>? hashFunction = null)
         {
+            if (nodeName == null)
+            {
+                throw new NullReferenceException(nameof(nodeName));
+            }
+            Logger = Dev.Logger("Chord");
+            HashFunction = hashFunction ?? DefaultHashFunction;
             Node = new Node(nodeName, Hash(nodeName));
             NetworkAdapter = networkAdapter;
-            HashFunction = hashFunction ?? DefaultHashFunction;
+            NetworkAdapter.SetRequestHandler(RequestHandler);
 
             // When there is only a single node, the predecessor and successor is always the same node
             PredecessorNode = Node;
             SuccessorNode = Node;
 
             Fingers = new Node[FingerCount];
-            _KnownNodes = new NodeList(HashFunction);
+            _KnownNodes = new NodeList(HashFunction) { Node };
             UpdateFingersTable();
         }
 
         public ulong Hash(byte[] key) => HashFunction(key);
-        public ulong Hash(string key) => HashFunction(Encoding.UTF8.GetBytes(key));
+        public ulong Hash(string key) => Hash(Encoding.UTF8.GetBytes(key));
+
+        public async Task<Message> RequestHandler(Message message)
+        {
+            Logger.Debug($"Handling message\n{message}");
+            Dev.Dump(message);
+            return message.Response(Node, new Dictionary<string, object?> {
+                { "key", "value" }
+            });
+        }
+
+        public async Task JoinNetwork(string nodeName)
+        {
+            if (IsNetworked)
+            {
+                throw new InvalidOperationException("Already part of a network");
+            }
+            /**
+             * Joining an existing network:
+             * 
+             * 1. TODO OK Contact an existing node.
+             * 2. TODO OK Find my successor node.
+             * 3. TODO Request that the successor node take this node in as it's new predecessor.
+             * 4. TODO Get a copy of all keys that will be stored by this node.
+             * 5. TODO Notify the network about my presence.
+             */
+            var masterNode = new Node(nodeName, Hash(nodeName));
+            await SendMessageAsync(masterNode, "hello-world", new Dictionary<string, object?>
+            {
+                {"key", "value"}
+            });
+        }
+
+        private async Task<Message> SendMessageAsync(Node target, string name, IDictionary<string, object?>? values = default)
+        {
+            return await NetworkAdapter.SendMessageAsync(target, new Message(Node, name, values));
+        }
+
+        public async Task LeaveNetwork()
+        {
+            throw new NotImplementedException();
+        }
 
         /**
          * Add knowledge about the existence of a node. This node
@@ -166,18 +217,22 @@ namespace ChordProtocol
          */
         private void UpdateFingersTable()
         {
+            Logger.Debug("Locking Fingers table");
             // Avoid problems with concurrent processes causing the fingers table to be updated
             lock (Fingers)
             {
+                Logger.Debug("Got a lock on the Fingers table");
                 for (int i = 0; i < FingerCount; i++)
                 {
                     var node = _KnownNodes.FindSuccessor(Node.Hash + (1UL << i));
                     if (node == null)
                     {
+                        Logger.Debug($"Find successor got null node");
                         throw new InvalidOperationException("Can't generate fingers table without having knowledge about any nodes");
                     }
                     Fingers[i] = node;
                 }
+                Logger.Debug("Got all the fingers");
             }
         }
 

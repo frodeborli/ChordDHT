@@ -63,6 +63,7 @@ namespace Fubber
 
         public async Task Ok(string body, string contentType = "text/plain")
         {
+            Dev.Info($"Sending response with body\n{body}");
             await Ok(new DataSource(body), contentType);
         }
 

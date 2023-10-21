@@ -10,7 +10,7 @@ using System.Text.Json;
 
 namespace Fubber
 {
-    internal class Dev
+    public class Dev
     {
         public class LoggerContext
         {
@@ -20,6 +20,12 @@ namespace Fubber
             {
                 Name = name;
             }
+
+            public LoggerContext Logger(string name)
+            {
+                return new LoggerContext($"{Name}{name}");
+            }
+
 
             public void Write(string message, object? values = default)
             {
