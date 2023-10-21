@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace ChordDHT.Util
+namespace Fubber
 {
     public class DataSource : Stream
     {
@@ -19,6 +19,27 @@ namespace ChordDHT.Util
             _generator = generator.GetAsyncEnumerator();
             _length = length ?? -1;
         }
+
+        public DataSource(Func<Action<byte[]>, Task> writer, long? length = default)
+            : this(CreateGeneratorFromAsyncDelegate(writer), length) { }
+
+        public DataSource(Func<Action<string>, Task> writer, long? length = default)
+            : this(async (innerWriter) => {
+                await writer((str) => {
+                    innerWriter(Encoding.UTF8.GetBytes(str));
+                });
+            }, length) { }
+
+        private static IAsyncEnumerable<byte[]> CreateGeneratorFromAsyncDelegate(Func<Action<byte[]>, Task> asyncDelegate)
+        {
+            var channel = System.Threading.Channels.Channel.CreateUnbounded<byte[]>();
+            var reader = channel.Reader;
+
+            asyncDelegate((byte[] bytes) => channel.Writer.TryWrite(bytes)).ContinueWith(_ => channel.Writer.Complete());
+
+            return reader.ReadAllAsync();
+        }
+
 
         public DataSource(IEnumerable<byte[]> generator, long? length = default)
             : this(WrapEnumerable(generator), length)
@@ -78,37 +99,29 @@ namespace ChordDHT.Util
 
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-            int bytesRead = 0;
-
-            while (count > 0)
+            if (_currentBufferIndex >= _currentBuffer.Length)
             {
-                if (_currentBufferIndex >= _currentBuffer.Length)
+                if (_generator == null)
                 {
-                    if (_generator == null)
-                    {
-                        break; // End of generator
-                    }
-
-                    if (!await _generator.MoveNextAsync())
-                    {
-                        break; // End of generator
-                    }
-
-                    _currentBuffer = _generator.Current;
-                    _currentBufferIndex = 0;
+                    return 0;  // End of generator
                 }
 
-                int bytesToCopy = Math.Min(count, _currentBuffer.Length - _currentBufferIndex);
-                Array.Copy(_currentBuffer, _currentBufferIndex, buffer, offset, bytesToCopy);
+                if (!await _generator.MoveNextAsync())
+                {
+                    return 0;  // End of generator
+                }
 
-                bytesRead += bytesToCopy;
-                _currentBufferIndex += bytesToCopy;
-                offset += bytesToCopy;
-                count -= bytesToCopy;
-                _totalBytesRead += bytesRead;
+                _currentBuffer = _generator.Current;
+                _currentBufferIndex = 0;
             }
 
-            return bytesRead;
+            int bytesToCopy = Math.Min(count, _currentBuffer.Length - _currentBufferIndex);
+            Array.Copy(_currentBuffer, _currentBufferIndex, buffer, offset, bytesToCopy);
+
+            _currentBufferIndex += bytesToCopy;
+            _totalBytesRead += bytesToCopy;
+
+            return bytesToCopy;
         }
 
         public override long Seek(long offset, SeekOrigin origin)

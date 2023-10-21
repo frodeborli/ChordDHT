@@ -16,7 +16,7 @@ namespace ChordDHT.DHT
         public string NodeName { get; set; }
 
         [JsonPropertyName("others")]
-        public List<string> KnownNodes { get; set; }
+        public string[] KnownNodes { get; set; }
 
         [JsonPropertyName("predecessor")]
         public string Predecessor { get; set; }

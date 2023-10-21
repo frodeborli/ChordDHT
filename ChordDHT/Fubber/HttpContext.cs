@@ -5,14 +5,14 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace ChordDHT.Util
+namespace Fubber
 {
     public class HttpContext
     {
         public WebApp WebApp { get; }
         public HttpListenerRequest Request { get; }
         public HttpListenerResponse Response { get; }
-        public RequestVariables Variables { get; }
+        public RouteVariables RouteVariables { get; }
 
         public ContextSender Send { get; }
 
@@ -25,7 +25,7 @@ namespace ChordDHT.Util
             WebApp = webApp;
             Request = context.Request;
             Response = context.Response;
-            Variables = new RequestVariables();
+            RouteVariables = new RouteVariables();
             Send = new ContextSender(this);
 
             CancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(appCancellationToken);

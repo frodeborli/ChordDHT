@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ChordDHT.Fubber;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -50,7 +51,7 @@ namespace ChordDHT.Benchmark
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine(ex.ToString());
+                            Dev.Error("BenchmarkRunner got an exception", ex);
                         }
                     }
                 }));

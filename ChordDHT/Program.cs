@@ -6,7 +6,7 @@ using System.Text.Encodings.Web;
 using ChordDHT.Benchmark;
 using ChordDHT.ChordProtocol;
 using ChordDHT.DHT;
-using ChordDHT.Util;
+using Fubber;
 
 class Program
 {
@@ -92,9 +92,9 @@ class Program
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"ERROR IN PRIMARY NODE: {ex.GetType()}: {ex.Message}\n{ex}");
+                Dev.Error($"Error in primary node ({hostname}:{port}:\n{ex}");
             }
-            Console.WriteLine($"Instance at {hostname}:{port} terminated");
+            Dev.Debug($"Instance {hostname}:{port} terminated");
         });
 
         var primaryNode = $"{hostname}:{port}";
@@ -109,9 +109,9 @@ class Program
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Program.cs: {portNumber}: {ex.GetType()}: {ex.Message}\n{ex}");
+                    Dev.Error($"Error in node ({hostname}:{port}:\n{ex}");
                 }
-                Console.WriteLine($"Instance at {hostname}:{portNumber} terminated");
+                Dev.Debug($"Instance {hostname}:{port} terminated");
             });
 
         }
@@ -133,10 +133,6 @@ class Program
         for (int i = 0; i < nodeCount; i++)
         {
             nodeList[i] = args[i + 1];
-        }
-        foreach (string n in nodeList)
-        {
-            Console.WriteLine($"Node {n}");
         }
         await Task.Delay(2000);
 
@@ -264,41 +260,43 @@ class Program
 
     static async Task RunWebServer(string hostname, int port, string? nodeToJoin)
     {
-        HttpListener listener = new HttpListener();
-        listener.Prefixes.Add($"http://{hostname}:{port}/");
-        try
-        {
-            listener.Start();
-        }
-        catch (HttpListenerException e)
-        {
-            Console.WriteLine($"Error trying to open '{hostname}:{port}'");
-            Console.WriteLine(e.ToString());
-            return;
-        }
-        string nodeName = $"{hostname}:{port}";
+        var nodeName = $"{hostname}:{port}";
+        var dhtServer = new DHTServer(nodeName, new DictionaryStorageBackend());
 
-        var webApp = new WebApp();
-        webApp.Router.AddRoute(new Route("GET", "/", async context => {
+        Dev.Info($"Starting DHTServer");
+
+        dhtServer.Router.AddRoute(new Route("GET", "/", async context => {
             await context.Send.Ok("Hello World!");
         }));
-        DHTServer dhtServer = new DHTServer($"{hostname}:{port}", new DictionaryStorageBackend(), webApp, "/");
+        dhtServer.Router.AddRoute(new Route("GET", "/stream", async context =>
+        {
+            await context.Send.EventSource(async (sendEvent) =>
+            {
+                sendEvent("text-chunk", "Hello", null);
+                await Task.Delay(1000);
+                sendEvent("text-chunk", ", World", null);
+                await Task.Delay(500);
+                sendEvent("text-chunk", "!", null);
+            });
+        }));
+
+        /**
+         * Simulating crash of the server
+         */
+        SetupCrashHandling(dhtServer);
+
+        var runTask = dhtServer.Run();
 
         /**
          * Handle joining an existing network
          */
         if (nodeToJoin != null)
         {
-            Console.WriteLine($"Joining network at {nodeToJoin}...");
+            Dev.Info($"Requesting to join chord network via {nodeToJoin}");
             await dhtServer.JoinNetwork(nodeToJoin);
         }
 
-        /**
-         * Simulating crash of the server
-         */
-        SetupCrashHandling(webApp);
-
-        await webApp.Run(listener);
+        await runTask;
     }
 
     static void SetupCrashHandling(WebApp webApp)
@@ -314,9 +312,10 @@ class Program
         webApp.Router.AddRoute(new Route("GET", $"/sim-crash", async context => {
             if (isSimulatingCrash)
             {
-                webApp.RespondJson(context, "Already simulating a crash");
+                await context.Send.JSON("Already simulating a crash");
             } else
             {
+                Dev.Debug("Crashed Chord Node simulation enabled");
                 webApp.Router.AddRoute(NodeInfoRoute);
                 webApp.Router.AddRoute(GetKeyRoute);
                 webApp.Router.AddRoute(PutKeyRoute);
@@ -333,6 +332,7 @@ class Program
             }
             else
             {
+                Dev.Debug("Crashed Chord Node simulation disabled");
                 webApp.Router.RemoveRoute(NodeInfoRoute);
                 webApp.Router.RemoveRoute(GetKeyRoute);
                 webApp.Router.RemoveRoute(PutKeyRoute);
