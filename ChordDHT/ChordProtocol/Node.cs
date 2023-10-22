@@ -33,7 +33,7 @@ namespace ChordProtocol
             LastSeen = DateTime.UtcNow;
         }
 
-        public string ToString()
+        override public string ToString()
         {
             return $"[Node {Name}]";
         }

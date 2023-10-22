@@ -47,7 +47,10 @@ namespace Fubber
 
         public void AddRoute(Route route)
         {
-            Routes.Add(route);
+            lock (Routes)
+            {
+                Routes.Add(route);
+            }
             RouteListNeedsSorting = true;
         }
 
@@ -61,7 +64,10 @@ namespace Fubber
 
         public void RemoveRoute(Route route)
         {
-            Routes.Remove(route);
+            lock (Routes)
+            {
+                Routes.Remove(route);
+            }
             RouteListNeedsSorting = true;
         }
 
@@ -81,9 +87,12 @@ namespace Fubber
                 return;
             }
 
-            Routes.Sort((a, b) => {
-                return b.Priority - a.Priority;
-            });
+            lock (Routes)
+            {
+                Routes.Sort((a, b) => {
+                    return b.Priority - a.Priority;
+                });
+            }
 
             RouteListNeedsSorting = false;
         }
@@ -92,15 +101,18 @@ namespace Fubber
         {
             SortRoutes();
 
-            foreach (var route in Routes)
+            lock (Routes)
             {
-                if (route.Predicate(context))
+                foreach (var route in Routes)
                 {
-                    return route;
+                    if (route.Predicate(context))
+                    {
+                        return route;
+                    }
                 }
-            }
 
-            return default;
+                return default;
+            }
         }
 
         public RequestDelegate? GetHandlerFor(HttpContext context)

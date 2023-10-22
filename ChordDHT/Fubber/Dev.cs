@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
@@ -10,126 +11,135 @@ using System.Text.Json;
 
 namespace Fubber
 {
+
     public class Dev
     {
         public class LoggerContext
         {
             public readonly string Name;
+            public ConsoleColor Color;
 
-            public LoggerContext(string name)
+            public LoggerContext(string name, ConsoleColor? color = default)
             {
                 Name = name;
+                Color = color ?? Console.ForegroundColor;
             }
 
-            public LoggerContext Logger(string name)
+            public void Log(string logLevel, string message, object? values = null, ConsoleColor? color = default)
             {
-                return new LoggerContext($"{Name}{name}");
+                string paddedLogLevel = logLevel.PadRight(7); // Ensure logLevel is 7 characters
+                string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+                var formattedMessage = ParseTemplate(message, values);
+                WriteLine($"{timestamp} {paddedLogLevel} {formattedMessage}", color: color);
+            }
+
+            public ConsoleColor SetColor(ConsoleColor color)
+            {
+                var oldColor = Color;
+                Color = color;
+                return oldColor;
+            }
+
+            public LoggerContext Logger(string name, ConsoleColor? color = default)
+            {
+                return new LoggerContext($"{Name}{name}", color);
             }
 
 
-            public void Write(string message, object? values = default)
+            public void Write(string message, object? values = default, ConsoleColor? color = default)
             {
+                var colorToUse = color ?? Color;
                 var output = $"[{Name}] {ParseTemplate(message, values)}";
+                var oldColor = Console.ForegroundColor;
+                Console.ForegroundColor = colorToUse;
                 Console.Write(output);
+                Console.ForegroundColor = oldColor;
                 System.Diagnostics.Debug.Write(output);
             }
 
-            public void WriteLine(string message, object? values = default)
+            public void WriteLine(string message, object? values = default, ConsoleColor? color = default)
             {
+                var colorToUse = color ?? Color;
                 var output = $"[{Name}] {ParseTemplate(message, values)}";
+                var oldColor = Console.ForegroundColor;
+                Console.ForegroundColor = colorToUse;
                 Console.WriteLine(output);
+                Console.ForegroundColor = oldColor;
                 System.Diagnostics.Debug.WriteLine(output);
             }
 
-
-            public void Debug(string message, object? values = default)
+            public void Debug(string message, object? values = null)
             {
-                Dev.Debug($"[{Name}] {message}", values);
+                Log("DEBUG", message, values, ConsoleColor.Yellow);
             }
 
-            public void Info(string message, object? values = default)
+            public void Info(string message, object? values = null)
             {
-                Dev.Info($"[{Name}] {message}", values);
+                Log("INFO", message, values);
             }
 
-            public void Notice(string message, object? values = default)
+            public void Notice(string message, object? values = null)
             {
-                Dev.Notice($"[{Name}] {message}", values);
+                Log("NOTICE", message, values);
             }
 
-            public void Warn(string message, object? values = default)
+            public void Warn(string message, object? values = null)
             {
-                Dev.Warn($"[{Name}] {message}", values);
-            }
-            public void Error(string message, object? values = default)
-            {
-                Dev.Error($"[{Name}] {message}", values);
+                Log("WARN", message, values);
             }
 
-            public void Error(string message, Exception exception)
+            public void Error(string message, object? values = null)
             {
-                Dev.Error($"[{Name}] {message}", exception);
+                Log("ERROR", message, values, ConsoleColor.Red);
             }
 
+            public void Error(string message, Exception ex)
+            {
+                Log("ERROR", $"{message}\n{ex}", color: ConsoleColor.Red);
+            }
+
+            public void Dump(object o)
+            {
+                WriteLine(FormatLong(o));
+            }
         }
 
-        public static LoggerContext Logger(string name) 
+        public static LoggerContext Logger(string name, ConsoleColor? color = default) 
         {
-            return new LoggerContext(name);
+            return new LoggerContext(name, color);
 
         }
 
-        public static void Log(string logLevel, string message, object? values = null)
+        private static LoggerContext? _DefaultLogger = null;
+
+        public static LoggerContext DefaultLogger
         {
-            string paddedLogLevel = logLevel.PadRight(7); // Ensure logLevel is 7 characters
-            string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
-            var formattedMessage = ParseTemplate(message, values);
-            WriteLine($"{timestamp} {paddedLogLevel} {formattedMessage}");
+            get
+            {
+                if (_DefaultLogger == null)
+                {
+                    _DefaultLogger = new LoggerContext("");
+                }
+                return _DefaultLogger;
+            }
         }
 
-        public static void Debug(string message, object? values = null)
-        {
-            Log("DEBUG", message, values);
-        }
+        public static void Debug(string message, object? values = null) => DefaultLogger.Debug(message, values);
 
-        public static void Info(string message, object? values = null)
-        {
-            Log("INFO", message, values);
-        }
+        public static void Info(string message, object? values = null) => DefaultLogger.Info(message, values);
 
-        public static void Notice(string message, object? values = null)
-        {
-            Log("NOTICE", message, values);
-        }
+        public static void Notice(string message, object? values = null) => DefaultLogger.Notice(message, values);
 
-        public static void Warn(string message, object? values = null)
-        {
-            Log("WARN", message, values);
-        }
+        public static void Warn(string message, object? values = null) => DefaultLogger.Warn(message, values);
 
-        public static void Error(string message, object? values = null)
-        {
-            Log("ERROR", message, values);
-        }
+        public static void Error(string message, object? values = null) => DefaultLogger.Error(message, values);
 
-        public static void Error(string message, Exception ex)
-        {
-            Log("ERROR", $"{message}\n{ex}");
-        }
+        public static void Dump(object o) => DefaultLogger.Dump(o);
 
-        public static void Write(string message, object? values = default)
-        {
-            var output = ParseTemplate(message, values);
-            Console.Write(output);
-            System.Diagnostics.Debug.Write(output);
-        }
+        public static void Write(string message, object? values = default) => DefaultLogger.Write(message, values);
 
-        public static void WriteLine(string message, object? values = default)
-        {
-            var output = ParseTemplate(message, values);
-            Console.WriteLine(output);
-            System.Diagnostics.Debug.WriteLine(output);
-        }
+        public static void WriteLine(string message, object? values = default) => DefaultLogger.WriteLine(message, values);
+
 
         public static string ParseTemplate(string template, object? values = default)
         {
@@ -283,13 +293,6 @@ namespace Fubber
             }
 
             return sb.ToString();
-        }
-
-
-
-        public static void Dump(object o)
-        {
-            WriteLine(FormatLong(o));
         }
     }
 }

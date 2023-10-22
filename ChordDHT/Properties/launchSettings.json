@@ -39,6 +39,10 @@
     "Joining 1 node": {
       "commandName": "Project",
       "commandLineArgs": "multiserve localhost 8080 2"
+    },
+    "Joining 10 nodes": {
+      "commandName": "Project",
+      "commandLineArgs": "multiserve localhost 8080 3"
     }
   }
 }

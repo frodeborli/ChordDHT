@@ -39,7 +39,7 @@ namespace ChordDHT.DHT
             });
         }
 
-        public Task JoinNetwork(string nodeName) => Chord.JoinNetwork(nodeName);
+        public Task JoinNetwork(string nodeName) => Chord.JoinNetwork(new Node(nodeName, Chord.Hash(nodeName)));
         public Task LeaveNetwork() => Chord.LeaveNetwork();
 
         private string NodeUrl(string nodeName, string endpoint)
@@ -155,7 +155,7 @@ namespace ChordDHT.DHT
                 await context.Send.Conflict("Already part of a network");
             }
 
-            await Chord.JoinNetwork(nprime);
+            //await Chord.JoinNetwork(nprime);
             await context.Send.JSON($"Network of '{nprime}' joined");
         }
 

@@ -287,27 +287,12 @@ class Program
 
     static async Task RunWebServer(string hostname, int port, string nodeName, string? nodeToJoin=null)
     {
+        var logger = Dev.Logger("RunWebServer");
         try
         {
             if (nodeName==null) throw new NullReferenceException(nameof(nodeName));
-            Dev.Info($"Starting DHTServer (hostname={hostname} port={port} nodeName={nodeName} nodeToJoin={nodeToJoin})");
+            logger.Info($"Starting DHTServer (hostname={hostname} port={port} nodeName={nodeName} nodeToJoin={nodeToJoin})");
             var dhtServer = new DHTServer(nodeName, new DictionaryStorageBackend());
-
-
-            dhtServer.Router.AddRoute(new Route("GET", "/", async context => {
-                await context.Send.Ok("Hello World!");
-            }));
-            dhtServer.Router.AddRoute(new Route("GET", "/stream", async context =>
-            {
-                await context.Send.EventSource(async (sendEvent) =>
-                {
-                    sendEvent("text-chunk", "Hello", null);
-                    await Task.Delay(1000);
-                    sendEvent("text-chunk", ", World", null);
-                    await Task.Delay(500);
-                    sendEvent("text-chunk", "!", null);
-                });
-            }));
 
             /**
              * Simulating crash of the server
@@ -321,14 +306,14 @@ class Program
              */
             if (nodeToJoin != null)
             {
-                Dev.Info($"Requesting to join chord network via {nodeToJoin}");
+                logger.Info($"Requesting to join chord network via {nodeToJoin}");
                 await dhtServer.JoinNetwork(nodeToJoin);
             }
 
             await runTask;
         } catch (Exception ex)
         {
-            Dev.Error($"Got exception:\n{ex}");
+            logger.Error($"Got exception:\n{ex}");
         }
     }
 

@@ -1,4 +1,5 @@
-﻿using Fubber;
+﻿using ChordProtocol;
+using Fubber;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,93 +8,57 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
-namespace ChordProtocol
+namespace ChordDHT.ChordProtocol
 {
-    public sealed class Message : EventArgs
+    public abstract class Message : IMessage
     {
-        [JsonPropertyName("source")]
-        public Node Source { get; private set; }
+        public Node? Sender { get; set; }
 
-        [JsonPropertyName("name")]
-        public string Name { get; private set; }
+        public Node Receiver { get; set; }
 
-        [JsonPropertyName("values")]
-        public IDictionary<string, object?> Values { get; private set; }
-
-        [JsonPropertyName("id")]
-        public Guid Id { get; private set; }
-
-        [JsonConstructor]
-        public Message(Node source, string name, IDictionary<string, object?>? values = default, Guid? id = default)
+        public string ToJson()
         {
-            Source = source;
-            Id = id ?? Guid.NewGuid();
-            Name = name;
-            Values = new Dictionary<string, object?>();
-            if (values != null)
+            var originalJson = JsonSerializer.Serialize(this, this.GetType());
+            var jsonDocument = JsonDocument.Parse(originalJson);
+
+            Dictionary<string, JsonElement> jsonObject = new Dictionary<string, JsonElement>();
+            foreach (JsonProperty property in jsonDocument.RootElement.EnumerateObject())
             {
-                foreach (var kvp in values)
-                {
-                    Values[kvp.Key] = kvp.Value;
-                }
+                jsonObject.Add(property.Name, property.Value.Clone());
             }
+
+            using (var jsonDoc = JsonDocument.Parse($"{{\"$type\": \"{GetType().AssemblyQualifiedName}\"}}"))
+            {
+                jsonObject["$type"] = jsonDoc.RootElement.GetProperty("$type").Clone();
+            }
+
+            return JsonSerializer.Serialize(jsonObject);
         }
 
-        public Message Response(Node responseNode, IDictionary<string, object?>? values = default)
+        public static IMessage? FromJson(string json)
         {
-            return new Message(responseNode, Name, values, Id);
+            var jsonDocument = JsonDocument.Parse(json);
+            Dictionary<string, JsonElement> jsonObject = new Dictionary<string, JsonElement>();
+
+            foreach (JsonProperty property in jsonDocument.RootElement.EnumerateObject())
+            {
+                jsonObject.Add(property.Name, property.Value.Clone());
+            }
+
+            if (!jsonObject.ContainsKey("$type"))
+            {
+                throw new InvalidDataException("$type annotation missing from message");
+            }
+
+            var typeName = jsonObject["$type"].GetString();
+            if (typeName == null)
+            {
+                throw new InvalidDataException("$type annotation missing from message");
+            }
+
+            var type = Type.GetType(typeName);
+            return (IMessage?)JsonSerializer.Deserialize(json, type);
         }
 
-        public object? this[string key]
-        {
-            get
-            {
-                return Values[key] ?? null;
-            }
-            set
-            {
-                Values[key] = value;
-            }
-        }
-
-        public Message Clone(Node? source=null, string? name = null, IEnumerable<KeyValuePair<string, object>>? values = null)
-        {
-            var data = new Dictionary<string, object?>(Values);
-            if (values != null)
-            {
-                foreach (var (key, value) in values)
-                {
-                    data[key] = value;
-                }
-            }
-            return new Message(source ?? Source, name ?? Name, data);
-        }
-
-        private static object? FilterValue(object? value)
-        {
-            if (value is string || value is int || value is float || value is double || value is bool)
-            {
-                return value;
-            }
-            if (value is IEnumerable<KeyValuePair<string, object>> enumValues)
-            {
-                var dict = new Dictionary<string, object?>();
-                foreach (var (key, val) in enumValues)
-                {
-                    dict.Add(key, FilterValue(val));
-                }
-                return dict;
-            }
-            if (value is IList<object?> listValues)
-            {
-                var list = new List<object?>();
-                foreach (var val in listValues)
-                {
-                    list.Add(FilterValue(val));
-                }
-                return list;
-            }
-            return null;
-        }
     }
 }
