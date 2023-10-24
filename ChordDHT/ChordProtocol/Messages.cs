@@ -24,7 +24,7 @@ namespace ChordDHT.ChordProtocol.Messages
 
     public class GetNodeInfo : Message { }
 
-    public class  GetNodeInfoResponse : Message { }
+    public class  GetNodeInfoResponse : Message
     {
         public Node PredecessorNode { get; set; }
         public Node SuccessorNode { get; set; }
