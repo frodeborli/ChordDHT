@@ -63,7 +63,6 @@ namespace Fubber
 
         public async Task Ok(string body, string contentType = "text/plain")
         {
-            Dev.Info($"Sending response with body\n{body}");
             await Ok(new DataSource(body), contentType);
         }
 
@@ -102,7 +101,7 @@ namespace Fubber
             await SendResponse(DataSource.Empty, 302, "text/plain");
         }
 
-        public async Task NotFound(Stream source = null, string contentType = "text/plain")
+        public async Task NotFound(Stream? source = default, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 404, contentType);
         }
@@ -112,7 +111,7 @@ namespace Fubber
             await NotFound(new DataSource(body), contentType);
         }
 
-        public async Task Conflict(Stream source = null, string contentType = "text/plain")
+        public async Task Conflict(Stream? source = default, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 409, contentType);
         }
@@ -127,7 +126,7 @@ namespace Fubber
             await Conflict(new DataSource(body), contentType);
         }
 
-        public async Task InternalServerError(Stream source = null, string contentType = "text/plain")
+        public async Task InternalServerError(Stream? source = default, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 500, contentType);
         }
@@ -142,7 +141,7 @@ namespace Fubber
             await InternalServerError(new DataSource(body), contentType);
         }
 
-        public async Task NotImplemented(Stream source = null, string contentType = "text/plain")
+        public async Task NotImplemented(Stream? source = default, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 501, contentType);
         }
@@ -152,7 +151,7 @@ namespace Fubber
             await NotImplemented(new DataSource(body), contentType);
         }
 
-        public async Task Accepted(Stream source = null, string contentType = "text/plain")
+        public async Task Accepted(Stream? source = default, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 202, contentType);
         }
@@ -162,7 +161,7 @@ namespace Fubber
             await Accepted(new DataSource(body), contentType);
         }
 
-        public async Task BadGateway(Stream source = null, string contentType = "text/plain")
+        public async Task BadGateway(Stream? source = default, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 502, contentType);
         }
@@ -172,7 +171,7 @@ namespace Fubber
             await BadGateway(new DataSource(body), contentType);
         }
 
-        public async Task Created(string location, DataSource source = null, string contentType = "text/plain")
+        public async Task Created(string location, DataSource? source = default, string contentType = "text/plain")
         {
             Context.Response.Headers.Add("Location", location);
             await SendResponse(source ?? DataSource.Empty, 201, contentType);
@@ -183,7 +182,7 @@ namespace Fubber
             await Created(location, new DataSource(body), contentType);
         }
 
-        public async Task Forbidden(Stream source = null, string contentType = "text/plain")
+        public async Task Forbidden(Stream? source = null, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 403, contentType);
         }
@@ -193,7 +192,7 @@ namespace Fubber
             await Forbidden(new DataSource(body), contentType);
         }
 
-        public async Task Locked(Stream source = null, string contentType = "text/plain")
+        public async Task Locked(Stream? source = null, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 423, contentType);
         }
@@ -203,7 +202,7 @@ namespace Fubber
             await Locked(new DataSource(body), contentType);
         }
 
-        public async Task Gone(Stream source = null, string contentType = "text/plain")
+        public async Task Gone(Stream? source = null, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 410, contentType);
         }
@@ -213,7 +212,7 @@ namespace Fubber
             await Gone(new DataSource(body), contentType);
         }
 
-        public async Task MethodNotAllowed(Stream source = null, string contentType = "text/plain")
+        public async Task MethodNotAllowed(Stream? source = null, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 405, contentType);
         }
@@ -235,7 +234,7 @@ namespace Fubber
             await SendResponse(DataSource.Empty, 304, "text/plain");
         }
 
-        public async Task ServiceUnavailable(Stream source = null, string contentType = "text/plain")
+        public async Task ServiceUnavailable(Stream? source = null, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 503, contentType);
         }
@@ -245,7 +244,7 @@ namespace Fubber
             await ServiceUnavailable(new DataSource(body), contentType);
         }
 
-        public async Task TooManyRequests(Stream source = null, string contentType = "text/plain")
+        public async Task TooManyRequests(Stream? source = null, string contentType = "text/plain")
         {
             await SendResponse(source ?? DataSource.Empty, 429, contentType);
         }

@@ -172,20 +172,23 @@ namespace ChordDHT.Benchmark
                             tTotalTime += innerStopwatch.ElapsedMilliseconds;
                             tMinimum = Math.Min(tMinimum, innerStopwatch.ElapsedMilliseconds);
                             tMaximum = Math.Max(tMaximum, innerStopwatch.ElapsedMilliseconds);
-                            lock (totalTimeGrouped)
+                            if (group != null)
                             {
-                                if (!minimumGrouped.ContainsKey(group))
+                                lock (totalTimeGrouped)
                                 {
-                                    countGrouped[group] = 0;
-                                    minimumGrouped[group] = long.MaxValue;
-                                    maximumGrouped[group] = long.MinValue;
-                                    totalTimeGrouped[group] = 0;
-                                }
-                                countGrouped[group]++;
-                                minimumGrouped[group] = Math.Min(minimumGrouped[group], innerStopwatch.ElapsedMilliseconds);
-                                maximumGrouped[group] = Math.Max(maximumGrouped[group], innerStopwatch.ElapsedMilliseconds);
-                                totalTimeGrouped[group] += innerStopwatch.ElapsedMilliseconds;
+                                    if (!minimumGrouped.ContainsKey(group))
+                                    {
+                                        countGrouped[group] = 0;
+                                        minimumGrouped[group] = long.MaxValue;
+                                        maximumGrouped[group] = long.MinValue;
+                                        totalTimeGrouped[group] = 0;
+                                    }
+                                    countGrouped[group]++;
+                                    minimumGrouped[group] = Math.Min(minimumGrouped[group], innerStopwatch.ElapsedMilliseconds);
+                                    maximumGrouped[group] = Math.Max(maximumGrouped[group], innerStopwatch.ElapsedMilliseconds);
+                                    totalTimeGrouped[group] += innerStopwatch.ElapsedMilliseconds;
 
+                                }
                             }
                         }
                         catch (Exception ex)

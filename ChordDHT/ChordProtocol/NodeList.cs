@@ -32,12 +32,17 @@ namespace ChordProtocol
             Remove(node.Name);
         }
 
-        /**
-         * Returns the Node having the greatest Node.Hash value
-         * less than hash.
-         */
         public Node? FindPredecessor(ulong hash)
         {
+            if (this.Count == 0)
+            {
+                return null;
+            }
+            else if (this.Count == 1)
+            {
+                return this.ElementAt(0).Value;
+            }
+
             int min = 0, max = this.Count - 1;
             Node? predecessor = null;
 
@@ -45,11 +50,6 @@ namespace ChordProtocol
             {
                 int mid = (min + max) / 2;
                 var current = this.ElementAt(mid).Value;
-
-                if (current.Hash == hash)
-                {
-                    return current;
-                }
 
                 if (current.Hash < hash)
                 {
@@ -65,7 +65,7 @@ namespace ChordProtocol
             // Wrap-around case
             if (predecessor == null)
             {
-                predecessor = this.ElementAt(max).Value;
+                predecessor = this.ElementAt(this.Count - 1).Value;
             }
 
             return predecessor;
@@ -75,11 +75,16 @@ namespace ChordProtocol
 
         public Node? FindPredecessor(Node node) => FindPredecessor(node.Hash);
 
+        public Node? FindSuccessor(Node node) => FindSuccessor(node.Hash);
         public Node? FindSuccessor(ulong hash)
         {
             if (this.Count == 0)
             {
                 return null;
+            }
+            else if (this.Count == 1)
+            {
+                return this.ElementAt(0).Value;
             }
 
             int min = 0, max = this.Count - 1;
@@ -92,10 +97,9 @@ namespace ChordProtocol
 
                 if (current.Hash == hash)
                 {
-                    return current;
+                    min = mid + 1;
                 }
-
-                if (current.Hash < hash)
+                else if (current.Hash < hash)
                 {
                     min = mid + 1;
                 }
@@ -109,16 +113,11 @@ namespace ChordProtocol
             // Wrap-around case
             if (successor == null)
             {
-                successor = this.ElementAt(min % this.Count).Value;
+                successor = this.ElementAt(0).Value;
             }
 
             return successor;
         }
-
-        //public Node? FindSuccessor(string nodeName) => FindSuccessor(HashFunction(nodeName));
-
-        //public Node? FindSuccessor(Node node) => FindSuccessor(node.Hash);
-
 
         private class NodeComparer : IComparer<string>
         {
@@ -131,6 +130,7 @@ namespace ChordProtocol
 
             public int Compare(string? x, string? y)
             {
+                if (x == null || y == null) return 0;
                 return HashFunction(x).CompareTo(HashFunction(y));
             }
         }

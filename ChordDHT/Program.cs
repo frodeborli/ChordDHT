@@ -8,6 +8,7 @@ class Program
 {
     public static void Main(string[] args)
     {
+        var logger = Dev.Logger($"Main({string.Join(" ", args)})");
         ThreadPool.SetMinThreads(16, 64);
         if (args.Length == 0)
         {
@@ -22,7 +23,7 @@ class Program
             return;
         }
 
-        Dev.Debug($"Launched with arguments: {string.Join(" ", args)}");
+        logger.Debug($"Launched with arguments: {string.Join(" ", args)}");
 
         switch (args[0])
         {
@@ -42,12 +43,14 @@ class Program
                 break;
         }
 
-        Console.WriteLine("Running for 15 minutes at most");
+        logger.Info("Running for 15 minutes at most");
         Task.Delay(900000).Wait();
+        logger.Info("15 minutes have elapsed, terminating application");
     }
 
     static void Serve(string[] args)
     {
+        var logger = Dev.Logger($"Serve({string.Join(" ", args)})");
         if (args.Length < 4)
         {
             SyntaxError("At least 3 arguments required");
@@ -68,15 +71,15 @@ class Program
             return;
         }
 
-        Dev.Debug($"Launched with arguments hostname={hostname} port={port} nodeName={nodeName} nodeToJoin={nodeToJoin}");
+        logger.Debug($"Launched with arguments hostname={hostname} port={port} nodeName={nodeName} nodeToJoin={nodeToJoin}");
 
         Task.Run(async () => await RunWebServer(hostname, port, nodeName, nodeToJoin));
-        Dev.Debug("RunWebServer done");
+        logger.Debug("RunWebServer done");
 
         void SyntaxError(string message)
         {
-            Dev.Error(message);
-            Dev.Info($"Syntax: {args[0]} <hostname> <port number> <node name> [node to join]");
+            logger.Error(message);
+            logger.Info($"Syntax: {args[0]} <hostname> <port number> <node name> [node to join]");
         }
     }
 
@@ -88,12 +91,13 @@ class Program
 
     static void Multiserve(string[] args)
     {
+        var logger = Dev.Logger($"Multiserve({string.Join(" ", args)})");
         var hostname = args[1];
         var port = int.Parse(args[2]);
         var nodeCount = int.Parse(args[3]);
         if (nodeCount < 1)
         {
-            Console.WriteLine("Must run at least one node");
+            logger.Fatal("Must run at least one node");
             return;
         }
 
@@ -104,12 +108,12 @@ class Program
             nodeList[i] = $"{hostname}:{port + i}";
         }
 
-        Dev.Info($"Node list: {string.Join(" ", nodeList)}");
+        logger.Info($"Node list: {string.Join(" ", nodeList)}");
 
 
         Task[] tasks = new Task[nodeCount];
 
-        Console.WriteLine("Starting first instance...");
+        logger.Info("Starting first instance...");
         tasks[0] = Task.Run(async () =>
         {
             try
@@ -118,9 +122,9 @@ class Program
             }
             catch (Exception ex)
             {
-                Dev.Error($"Error in primary node ({hostname}:{port}:\n{ex}");
+                logger.Fatal($"Error in primary node ({hostname}:{port}:\n{ex}");
             }
-            Dev.Debug($"Instance {hostname}:{port} terminated");
+            logger.Debug($"Instance {hostname}:{port} terminated");
         });
 
         var primaryNode = $"{hostname}:{port}";
@@ -136,9 +140,9 @@ class Program
                 }
                 catch (Exception ex)
                 {
-                    Dev.Error($"Error in node ({hostname}:{port}:\n{ex}");
+                    logger.Fatal($"Error in node ({hostname}:{port}:\n{ex}");
                 }
-                Dev.Debug($"Instance {hostname}:{port} terminated");
+                logger.Debug($"Instance {hostname}:{port} terminated");
             });
 
         }
@@ -287,7 +291,7 @@ class Program
 
     static async Task RunWebServer(string hostname, int port, string nodeName, string? nodeToJoin=null)
     {
-        var logger = Dev.Logger("RunWebServer");
+        var logger = Dev.Logger($"RunWebServer({hostname}:{port})");
         try
         {
             if (nodeName==null) throw new NullReferenceException(nameof(nodeName));
@@ -333,7 +337,7 @@ class Program
                 await context.Send.JSON("Already simulating a crash");
             } else
             {
-                Dev.Debug("Crashed Chord Node simulation enabled");
+                webApp.Logger.Debug("Crashed Chord Node simulation enabled");
                 webApp.Router.AddRoute(NodeInfoRoute);
                 webApp.Router.AddRoute(GetKeyRoute);
                 webApp.Router.AddRoute(PutKeyRoute);
@@ -350,7 +354,7 @@ class Program
             }
             else
             {
-                Dev.Debug("Crashed Chord Node simulation disabled");
+                webApp.Logger.Debug("Crashed Chord Node simulation disabled");
                 webApp.Router.RemoveRoute(NodeInfoRoute);
                 webApp.Router.RemoveRoute(GetKeyRoute);
                 webApp.Router.RemoveRoute(PutKeyRoute);

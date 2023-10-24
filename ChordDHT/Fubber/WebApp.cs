@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ChordDHT.Fubber;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -10,8 +11,8 @@ namespace Fubber
 {
     public class WebApp
     {
-        public event Func<Task> AppStarted;
-        public event Func<Task> AppStopping;
+        public event Func<Task>? AppStarted;
+        public event Func<Task>? AppStopping;
         public Uri[] Prefixes { get; private set; }
         public Router Router { get; private set; }
 
@@ -22,15 +23,15 @@ namespace Fubber
 
         private HttpListener HttpListener;
 
-        private Dev.LoggerContext Logger;
+        public ILogger Logger;
 
         /// <summary>
         /// Constructor
         /// </summary>
         /// <param name="prefixes">Prefixes for the application such as 'http://hostname:80/'</param>
-        public WebApp(Uri[] prefixes)
+        public WebApp(Uri[] prefixes, ILogger logger)
         {
-            Logger = Dev.Logger("WebApp");
+            Logger = logger;
             Prefixes = prefixes;
 
             HttpListener = new HttpListener();
@@ -49,13 +50,13 @@ namespace Fubber
             HttpClient = new HttpClient(HttpClientHandler);
         }
         
-        public WebApp(Uri prefix) : this(new Uri[] { prefix })
+        public WebApp(Uri prefix, ILogger logger) : this(new Uri[] { prefix }, logger)
         { }
 
-        public WebApp(string prefix) : this(new Uri[] { new Uri(prefix) })
+        public WebApp(string prefix, ILogger logger) : this(new Uri[] { new Uri(prefix) }, logger)
         { }
 
-        public WebApp(string[] prefixes) : this(Array.ConvertAll(prefixes, p => new Uri(p)))
+        public WebApp(string[] prefixes, ILogger logger) : this(Array.ConvertAll(prefixes, p => new Uri(p)), logger)
         { }
 
         public async Task Run(CancellationToken cancellationToken=default)
@@ -76,9 +77,7 @@ namespace Fubber
 
             if (AppStarted != null)
             {
-                Logger.Debug("Running AppStarted events");
                 await InvokeAllAsync(AppStarted);
-                Logger.Debug("Finished running AppStarted events");
             }
 
             Logger.Info($"Waiting for connections on {string.Join(", ", Prefixes.Select(p => $"{p}").ToArray())}");
@@ -97,11 +96,11 @@ namespace Fubber
                             {
                                 await httpContext.Send.NotFound();
                             }
-                            Dev.Info($"{context.Request.HttpMethod} {context.Request.RawUrl} {context.Response.StatusCode} {context.Response.StatusDescription}");
+                            Logger.Info($"{context.Request.HttpMethod} {context.Request.RawUrl} {context.Response.StatusCode} {context.Response.StatusDescription}");
                         }
                         catch (Exception ex)
                         {
-                            Dev.Error($"{context.Request.HttpMethod} {context.Request.RawUrl} {context.Response.StatusCode} {context.Response.StatusDescription}\n{ex}");
+                            Logger.Error($"{context.Request.HttpMethod} {context.Request.RawUrl} {context.Response.StatusCode} {context.Response.StatusDescription}\n{ex}");
                         }
                         // Ensure the response is closed when we get to this point
                         context.Response.Close();

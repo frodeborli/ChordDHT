@@ -11,30 +11,30 @@ namespace ChordDHT.DHT
     {
         private ConcurrentDictionary<string, IStoredItem> _dictionary = new ConcurrentDictionary<string, IStoredItem>();
 
-        public async Task<bool> Remove(string key)
+        public Task<bool> Remove(string key)
         {
-            IStoredItem removedItem;
-            return _dictionary.TryRemove(key, out removedItem);
+            IStoredItem? removedItem;
+            return Task.FromResult(_dictionary.TryRemove(key, out removedItem));
         }
 
-        public async Task<IStoredItem?> Get(string key)
+        public Task<IStoredItem?> Get(string key)
         {
-            if (_dictionary.TryGetValue(key, out var value))
+            if (_dictionary.TryGetValue(key, out IStoredItem? val))
             {
-                return value;
+                return Task.FromResult(val)!;
             }
-            return null;
+            return Task.FromResult((IStoredItem?)null);
         }
 
-        public async Task<bool> ContainsKey(string key)
+        public Task<bool> ContainsKey(string key)
         {
-            return _dictionary.ContainsKey(key);
+            return Task.FromResult(_dictionary.ContainsKey(key));
         }
 
-        public async Task<bool> Put(string key, IStoredItem value)
+        public Task<bool> Put(string key, IStoredItem value)
         {
-            _dictionary[key] = value;
-            return true;
+            _dictionary[key] = value;            
+            return Task.FromResult(true);
         }
     }
 }

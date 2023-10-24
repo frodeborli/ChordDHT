@@ -1,5 +1,6 @@
 ﻿using ChordDHT.ChordProtocol;
 using ChordDHT.ChordProtocol.Exceptions;
+using ChordDHT.Fubber;
 using ChordProtocol;
 using Fubber;
 using System;
@@ -15,14 +16,14 @@ namespace ChordDHT.DHT
     class DHTNetworkAdapter : IChordNetworkAdapter
     {
         private WebApp WebApp;
-        private Dev.LoggerContext Logger;
+        private ILogger Logger;
         private Route Route;
         private Dictionary<Type, IMessageHandler> MessageHandlers;                                 
 
-        public DHTNetworkAdapter(WebApp webApp)
+        public DHTNetworkAdapter(WebApp webApp, ILogger logger)
         {
             WebApp = webApp;
-            Logger = Dev.Logger("DHTNetworkAdapter");
+            Logger = logger;
             Route = new Route("PUT", "/chord-node-api", RequestReceivedHandler);
             MessageHandlers = new Dictionary<Type, IMessageHandler>();
             WebApp.AppStarted += StartAsync;
@@ -33,6 +34,10 @@ namespace ChordDHT.DHT
             where TRequestMessage : IMessage
             where TResponseMessage : IMessage
         {
+            if (message.Receiver == null)
+            {
+                throw new NullReferenceException(nameof(message.Receiver));
+            }
             var targetUrl = $"http://{message.Receiver.Name}/chord-node-api";
 
             var requestBody = new StringContent(message.ToJson(), Encoding.UTF8, "application/json");
@@ -45,17 +50,17 @@ namespace ChordDHT.DHT
                 try
                 {
                     response = await WebApp.HttpClient.PutAsync(targetUrl, requestBody);
-                } catch (HttpRequestException ex)
+                } catch (HttpRequestException)
                 {
                     // node seems to be gone or down
-                    var goneNodeName = new Uri(targetUrl).Authority;
+                    var goneNodeName = new Uri(targetUrl!).Authority;
                     throw new NodeGoneException(goneNodeName);
                 }
 
                 if (response.StatusCode == HttpStatusCode.Redirect)
                 {
-                    Logger.Debug($"Following redirect from {targetUrl} to {response.Headers.Location.ToString()}");
-                    targetUrl = response.Headers.Location.ToString();                    
+                    Logger.Debug($"Following redirect from {targetUrl} to {response.Headers.Location?.ToString()}");
+                    targetUrl = response.Headers?.Location?.ToString();                    
                 } else if (response.StatusCode == HttpStatusCode.InternalServerError)
                 {
                     throw new RequestFailedException(await response.Content.ReadAsStringAsync());
@@ -63,7 +68,7 @@ namespace ChordDHT.DHT
                 {
                     throw new InvalidOperationException($"SOMETHING FISHY HAPPN {(int)response.StatusCode}!");
                 }
-            } while (!response.IsSuccessStatusCode);
+            } while (!response.IsSuccessStatusCode && targetUrl != null);
             
             string responseData = await response.Content.ReadAsStringAsync();
 

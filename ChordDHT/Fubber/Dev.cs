@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ChordDHT.Fubber;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
@@ -14,78 +15,76 @@ namespace Fubber
 
     public class Dev
     {
-        public class LoggerContext
+        public class LoggerContext : ILogger
         {
-            public readonly string Name;
+            public readonly string Prefix;
             public ConsoleColor Color;
 
-            public LoggerContext(string name, ConsoleColor? color = default)
+            public LoggerContext(string prefix, ConsoleColor? color = default)
             {
-                Name = name;
+                Prefix = prefix;
                 Color = color ?? Console.ForegroundColor;
             }
 
             public void Log(string logLevel, string message, object? values = null, ConsoleColor? color = default)
             {
-                string paddedLogLevel = logLevel.PadRight(7); // Ensure logLevel is 7 characters
-                string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
-                var formattedMessage = ParseTemplate(message, values);
-                WriteLine($"{timestamp} {paddedLogLevel} {formattedMessage}", color: color);
-            }
-
-            public ConsoleColor SetColor(ConsoleColor color)
-            {
-                var oldColor = Color;
-                Color = color;
-                return oldColor;
+                lock (Console.Out)
+                {
+                    string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+                    string prefix = $"{timestamp} [{Prefix}] {logLevel} ";
+                    var parsedMessage = ParseTemplate(message, values);
+                    if (parsedMessage.Contains("\n") || prefix.Length + parsedMessage.Length >= Console.BufferWidth)
+                    {
+                        WriteLine($"{timestamp} [{Prefix}] {logLevel} {ParseTemplate(message, values)}", color: color);
+                    }
+                    else
+                    {
+                        WriteLine($"{timestamp} [{Prefix}] {logLevel} {ParseTemplate(message, values)}", color: color);
+                    }
+                }
             }
 
             public LoggerContext Logger(string name, ConsoleColor? color = default)
             {
-                return new LoggerContext($"{Name}{name}", color);
+                return new LoggerContext($"{Prefix}:{name}", color);
             }
-
 
             public void Write(string message, object? values = default, ConsoleColor? color = default)
             {
                 var colorToUse = color ?? Color;
-                var output = $"[{Name}] {ParseTemplate(message, values)}";
                 var oldColor = Console.ForegroundColor;
                 Console.ForegroundColor = colorToUse;
-                Console.Write(output);
+                Console.Write(ParseTemplate(message, values));
                 Console.ForegroundColor = oldColor;
-                System.Diagnostics.Debug.Write(output);
             }
 
             public void WriteLine(string message, object? values = default, ConsoleColor? color = default)
             {
                 var colorToUse = color ?? Color;
-                var output = $"[{Name}] {ParseTemplate(message, values)}";
                 var oldColor = Console.ForegroundColor;
                 Console.ForegroundColor = colorToUse;
-                Console.WriteLine(output);
+                Console.WriteLine(ParseTemplate(message, values));
                 Console.ForegroundColor = oldColor;
-                System.Diagnostics.Debug.WriteLine(output);
             }
 
             public void Debug(string message, object? values = null)
             {
-                Log("DEBUG", message, values, ConsoleColor.Yellow);
+                Log("DEBUG", message, values, ConsoleColor.Cyan);
             }
 
             public void Info(string message, object? values = null)
             {
-                Log("INFO", message, values);
+                Log("INFO", message, values, ConsoleColor.Gray);
             }
 
             public void Notice(string message, object? values = null)
             {
-                Log("NOTICE", message, values);
+                Log("NOTICE", message, values, ConsoleColor.White);
             }
 
             public void Warn(string message, object? values = null)
             {
-                Log("WARN", message, values);
+                Log("WARN", message, values, ConsoleColor.DarkYellow);
             }
 
             public void Error(string message, object? values = null)
@@ -93,9 +92,9 @@ namespace Fubber
                 Log("ERROR", message, values, ConsoleColor.Red);
             }
 
-            public void Error(string message, Exception ex)
+            public void Fatal(string message, object? values = null)
             {
-                Log("ERROR", $"{message}\n{ex}", color: ConsoleColor.Red);
+                Log("FATAL", message, values, ConsoleColor.Magenta);
             }
 
             public void Dump(object o)
@@ -156,7 +155,7 @@ namespace Fubber
             return template;
         }
 
-        public static string FormatShort(object? o, bool detailed = false, int maxDepth = 2, HashSet<object> visited = null)
+        public static string FormatShort(object? o, bool detailed = false, int maxDepth = 2, HashSet<object>? visited = null)
         {
 
             if (o is string)
@@ -218,7 +217,7 @@ namespace Fubber
             }
         }
 
-        public static string FormatLong(object? o, int maxDepth = 2, HashSet<object> visited = null, string indent = "")
+        public static string FormatLong(object? o, int maxDepth = 2, HashSet<object>? visited = null, string indent = "")
         {
             if (visited == null) visited = new HashSet<object>();
 

@@ -14,7 +14,7 @@ namespace ChordDHT.ChordProtocol
     {
         public Node? Sender { get; set; }
 
-        public Node Receiver { get; set; }
+        public Node? Receiver { get; set; }
 
         public string ToJson()
         {
@@ -57,7 +57,7 @@ namespace ChordDHT.ChordProtocol
             }
 
             var type = Type.GetType(typeName);
-            return (IMessage?)JsonSerializer.Deserialize(json, type);
+            return (IMessage?)JsonSerializer.Deserialize(json, type ?? typeof(object));
         }
 
     }

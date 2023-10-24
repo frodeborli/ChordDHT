@@ -22,6 +22,14 @@ namespace ChordDHT.ChordProtocol.Messages
         public Node? ForwardedFor { get; set; } = null;
     }
 
+    public class GetNodeInfo : Message { }
+
+    public class  GetNodeInfoResponse : Message { }
+    {
+        public Node PredecessorNode { get; set; }
+        public Node SuccessorNode { get; set; }
+    }
+
     public class RequestJoin : Message { }
 
     public class RequestJoinResponse : Message

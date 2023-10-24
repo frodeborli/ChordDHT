@@ -10,8 +10,8 @@ namespace ChordDHT.ChordProtocol
 {
     public interface IMessage
     {
-        public Node Sender { get; set; }
-        public Node Receiver { get; set; }
+        public Node? Sender { get; set; }
+        public Node? Receiver { get; set; }
 
         public string ToJson();
     }

@@ -1,6 +1,7 @@
 ﻿using ChordDHT.ChordProtocol;
 using ChordDHT.ChordProtocol.Exceptions;
 using ChordDHT.ChordProtocol.Messages;
+using ChordDHT.Fubber;
 using Fubber;
 using System.Diagnostics;
 using System.Security.Cryptography;
@@ -23,7 +24,10 @@ namespace ChordProtocol
         public Node[] KnownNodes {
             get
             {
-                return _KnownNodes.Values.ToArray();
+                lock (_KnownNodes)
+                {
+                    return _KnownNodes.Values.ToArray();
+                }
             }
         }
 
@@ -43,21 +47,21 @@ namespace ChordProtocol
         // Network adapter is used for inter node communications and must be provided
         private IChordNetworkAdapter NetworkAdapter;
 
-        private Dev.LoggerContext Logger;
+        private ILogger Logger;
 
-        public Chord(string nodeName, IChordNetworkAdapter networkAdapter, Func<byte[], ulong>? hashFunction = null)
+        public Chord(string nodeName, IChordNetworkAdapter networkAdapter, ILogger logger, Func<byte[], ulong>? hashFunction = null)
         {
             if (nodeName == null)
             {
                 throw new NullReferenceException(nameof(nodeName));
             }
-            Logger = Dev.Logger("Chord");
+            Logger = logger;
             HashFunction = hashFunction ?? DefaultHashFunction;
             Node = new Node(nodeName, Hash(nodeName));
             NetworkAdapter = networkAdapter;
 
             // Just for testing
-            NetworkAdapter.AddMessageHandler<Ping, Ping.Response>(async (Ping ping) => new Ping.Response());
+            NetworkAdapter.AddMessageHandler<Ping, Ping.Response>((Ping ping) => Task.FromResult(new Ping.Response()));
             // When a node requests to join, we return a list of all known nodes or redirect them
             NetworkAdapter.AddMessageHandler<RequestJoin, RequestJoinResponse>(OnRequestJoin);
             // When a node says hello, we add them to our list of known nodes
@@ -76,7 +80,7 @@ namespace ChordProtocol
             Fingers = new Node[FingerCount];
             _KnownNodes = new NodeList(HashFunction) { Node };
             UpdateFingersTable();
-            RunStabilization();
+            Task.Run(() => RunStabilization());
         }
 
         private async Task RunStabilization()
@@ -88,13 +92,15 @@ namespace ChordProtocol
                 {
                     continue;
                 }
+                Logger.Debug($"Stabilization process: predecessor={PredecessorNode} successor={SuccessorNode}");
+                DumpKnownNodes();
 
                 // Check that predecessor is alive. This also notifies him about our existence, so it will
                 // fix their successor reference.
                 try
                 {
                     await SendMessageAsync<Acknowledge>(PredecessorNode, new Hello());
-                } catch (NodeGoneException ex)
+                } catch (NodeGoneException)
                 {
                     // Predecessor seems to be gone, we will query our first successor for who may be our predecessor
                     var predecessor = await SendMessageAsync<NodeResponse>(SuccessorNode, new FindPredecessor() { hash = Node.Hash });
@@ -106,7 +112,7 @@ namespace ChordProtocol
                 try
                 {
                     await SendMessageAsync<Acknowledge>(SuccessorNode, new Hello());
-                } catch (NodeGoneException ex)
+                } catch (NodeGoneException)
                 {
                     // Predecessor seems to be gone, we will query our first successor for who may be our predecessor
                     var successor = await SendMessageAsync<NodeResponse>(SuccessorNode, new FindSuccessor() { hash = Node.Hash });
@@ -145,6 +151,7 @@ namespace ChordProtocol
             }
         }
 
+        public Task JoinNetwork(string nodeToJoin) => JoinNetwork(new Node(nodeToJoin, Hash(nodeToJoin)));
         public async Task JoinNetwork(Node nodeToJoin)
         {
             if (IsNetworked)
@@ -181,6 +188,12 @@ namespace ChordProtocol
             List<Task<Acknowledge>> receivers = new List<Task<Acknowledge>>();
             foreach (var node in KnownNodes)
             {
+                if (node == Node)
+                {
+                    // Don't send hello to myself
+                    continue;
+                }
+                Logger.Notice($"Sending hello to {node}");
                 receivers.Add(SendMessageAsync<Acknowledge>(node, new Hello()));
             }
             await Task.WhenAll(receivers.ToArray());
@@ -202,7 +215,7 @@ namespace ChordProtocol
 
         private Task<Acknowledge> OnHello(Hello request)
         {
-            AddNode(request.Sender);
+            AddNode(request.Sender!);
             return Task.FromResult(new Acknowledge());
         }
 
@@ -212,7 +225,7 @@ namespace ChordProtocol
             {
                 RemoveNode(request.ForwardedFor);
             } else {
-                RemoveNode(request.Sender);
+                RemoveNode(request.Sender!);
 
                 // Tell everybody we know that we received a notification
                 List<Task<Acknowledge>> receivers = new List<Task<Acknowledge>>();
@@ -288,7 +301,7 @@ namespace ChordProtocol
                     if (!_KnownNodes.ContainsKey(node.Name))
                     {
                         _KnownNodes.Add(node);
-                        Logger.Debug(" - added node {node} to list of known nodes");
+                        Logger.Debug($" - added {node} to list of known nodes");
                         addedCount++;
                     }
                 }
@@ -306,30 +319,7 @@ namespace ChordProtocol
          * might not be used in routing, depending on the hash value
          * of the node name.
          */
-        public void AddNode(IEnumerable<string> nodes)
-        {
-            int addedCount = 0;
-            lock (_KnownNodes)
-            {
-                foreach (var node in nodes)
-                {
-                    if (node == null)
-                    {
-                        throw new ArgumentNullException(nameof(nodes), "Found a null string in AddNode");
-                    }
-                    if (!_KnownNodes.ContainsKey(node))
-                    {
-                        _KnownNodes.Add(node);
-                        Dev.Debug($" - {Node.Name}: Added node '{node}' to list of known nodes");
-                        addedCount++;
-                    }
-                }
-            }
-            if (addedCount > 0)
-            {
-                UpdateFingersTable();
-            }
-        }
+        public void AddNode(IEnumerable<string> nodes) => AddNode(new List<string>(nodes).ConvertAll(n => new Node(n, Hash(n))));
 
         public void AddNode(string nodeName) => AddNode(new string[] { nodeName });
 
@@ -359,7 +349,7 @@ namespace ChordProtocol
                     }
                     if (_KnownNodes.Remove(node))
                     {
-                        Dev.Debug($" - {Node.Name}: Removed node '{node}' from list of known nodes");
+                        Logger.Debug($" - {Node.Name}: Removed node '{node}' from list of known nodes");
                         removedCount++;
                     }
                 }
@@ -374,7 +364,10 @@ namespace ChordProtocol
 
         public void TagNode(string nodeName)
         {
-            _KnownNodes[nodeName].Tag();
+            lock (_KnownNodes)
+            {
+                _KnownNodes[nodeName].Tag();
+            }
         }
 
         /**
@@ -415,19 +408,48 @@ namespace ChordProtocol
          */
         private void UpdateFingersTable()
         {
-            // Avoid problems with concurrent processes causing the fingers table to be updated
-            lock (Fingers)
+            lock (_KnownNodes)
             {
-                for (int i = 0; i < FingerCount; i++)
+                PredecessorNode = _KnownNodes.FindPredecessor(Node)!;
+                SuccessorNode = _KnownNodes.FindSuccessor(Node)!;
+                // Avoid problems with concurrent processes causing the fingers table to be updated
+                lock (Fingers)
                 {
-                    var node = _KnownNodes.FindSuccessor(Node.Hash + (1UL << i));
-                    if (node == null)
+                    for (int i = 0; i < FingerCount; i++)
                     {
-                        throw new InvalidOperationException("Can't generate fingers table without having knowledge about any nodes");
+                        var node = _KnownNodes.FindSuccessor(Node.Hash + (1UL << i));
+                        if (node == null)
+                        {
+                            throw new InvalidOperationException("Can't generate fingers table without having knowledge about any nodes");
+                        }
+                        Fingers[i] = node;
                     }
-                    Fingers[i] = node;
                 }
             }
+        }
+
+        private void DumpFingersTable()
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine($"Node: {Node.Name} {Node.Hash}");
+            sb.Append("Nodes: ");
+            lock (_KnownNodes)
+            {
+                sb.AppendLine(string.Join(" ", _KnownNodes.Select(v => v.Value.Name)));
+            }
+            ulong a = 1;
+            for (ulong i = 0; i < FingerCount; i++)
+            {
+                ulong from = Node.Hash + a;
+                a *= 2;
+                sb.AppendLine($"{i,2} from={from, 22} {Fingers[i].Name} {Fingers[i].Hash}");
+            }
+            Logger.Debug($"Fingers table:\n{sb}");
+        }
+
+        private void DumpKnownNodes()
+        {
+            Logger.Debug($"Known nodes: {string.Join(" ", new List<Node>(KnownNodes).ConvertAll(f => f.Name))}");
         }
 
         /**

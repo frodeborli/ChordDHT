@@ -23,8 +23,8 @@ namespace ChordDHT.ChordProtocol
             {
                 return await _handlerFunc(receivedMessage);
             }
-            // Handle error: the received message type doesn't match the handler
-            return null;
+
+            throw new InvalidOperationException($"No handlers for the message type {message.GetType().Name}");
         }
     }
 

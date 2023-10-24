@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ChordDHT.Fubber;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
@@ -12,10 +13,12 @@ namespace Fubber
         private List<Route> Routes = new List<Route>();
         private bool RouteListNeedsSorting = false;
         private WebApp WebApp;
+        private ILogger Logger;
 
         public Router(WebApp webApp)
         {
             WebApp = webApp;
+            Logger = webApp.Logger.Logger("Router");
         }
 
         public async Task<bool> TryHandleRequest(HttpContext context)

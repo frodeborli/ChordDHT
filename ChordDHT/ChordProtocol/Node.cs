@@ -38,6 +38,15 @@ namespace ChordProtocol
             return $"[Node {Name}]";
         }
 
+        public override int GetHashCode()
+        {
+            return (int)Hash;
+        }
+
+        public override bool Equals(object? obj)
+        {
+            return obj is Node node && Name == node.Name;
+        }
         public static bool operator ==(Node? a, Node? b)
         {
             if (ReferenceEquals(a, null) && ReferenceEquals(b, null)) return true;
@@ -47,7 +56,7 @@ namespace ChordProtocol
 
         public static bool operator !=(Node? a, Node? b)
         {
-            return a.Name != b.Name;
+            return !(a == b);
         }
 
     }

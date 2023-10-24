@@ -2,6 +2,7 @@
 using Fubber;
 using System.Net;
 using System.Text.Json;
+using System.Web;
 
 namespace ChordDHT.DHT
 {
@@ -15,18 +16,16 @@ namespace ChordDHT.DHT
         // If a node is in the process of joining
         protected string? JoiningNode = null;
 
-        public Dev.LoggerContext Logger;
         private DHTNetworkAdapter NetworkAdapter;
 
 
         public DHTServer(string nodeName, IStorageBackend storageBackend, string prefix = "/")
-            : base($"http://{nodeName}")
+            : base($"http://{nodeName}", Dev.Logger(nodeName))
         {
             NodeName = nodeName;
-            Logger = Dev.Logger($"DHTServer {nodeName}");
             StorageBackend = storageBackend;
-            NetworkAdapter = new DHTNetworkAdapter(this);
-            Chord = new Chord(nodeName, NetworkAdapter);
+            NetworkAdapter = new DHTNetworkAdapter(this, Logger.Logger("NetworkAdapter"));
+            Chord = new Chord(nodeName, NetworkAdapter, Logger.Logger("Chord"));
             Router.AddRoute(new Route[] {
                 new Route("GET", $"/node-info", GetNodeInfoHandler),
                 new Route("GET", $"/storage/(?<key>[^/]+)", GetHandler),
@@ -137,26 +136,27 @@ namespace ChordDHT.DHT
          */
         private async Task JoinHandler(HttpContext context)
         {
-            throw new NotImplementedException("JoinHandler is not implemented");
-            if (IsPartOfNetwork)
+            if (Chord.IsNetworked)
             {
                 await context.Send.Conflict("Already part of a chord network");
                 return;
             }
-            if (!context.RouteVariables.ContainsKey("nprime"))
+
+            var nprime = context.Request.QueryString["nprime"];
+            if (nprime == null)
             {
                 await context.Send.BadRequest("The query parameter nprime is required");
                 return;
             }
-            string nprime = context.RouteVariables["nprime"];
-
-            if (Chord.IsNetworked)
+            try
             {
-                await context.Send.Conflict("Already part of a network");
+                await Chord.JoinNetwork(nprime);
+                await context.Send.JSON($"Network of '{nprime}' joined");
+            } catch (Exception ex)
+            {
+                Logger.Error(ex.ToString());
+                await context.Send.InternalServerError("Unable to join network");
             }
-
-            //await Chord.JoinNetwork(nprime);
-            await context.Send.JSON($"Network of '{nprime}' joined");
         }
 
         /**
@@ -224,14 +224,14 @@ namespace ChordDHT.DHT
             }
         }
 
-        new public async Task<IStoredItem?> Get(string key)
+        public async Task<IStoredItem?> Get(string key)
         {
             if (key == null) throw new NullReferenceException(nameof(key));
             var (result, hopCount) = await GetReal(key);
             return result;
         }
 
-        new private async Task<(IStoredItem?, int)> GetReal(string key)
+        private async Task<(IStoredItem?, int)> GetReal(string key)
         {
             if (key == null) throw new NullReferenceException(nameof(key));
             var bestNode = Chord.Lookup(key);
@@ -264,13 +264,13 @@ namespace ChordDHT.DHT
             }
         }
 
-        new public async Task<bool> Put(string key, IStoredItem value)
+        public async Task<bool> Put(string key, IStoredItem value)
         {
             var (result, hopCount) = await PutReal(key, value);
             return result;
         }
 
-        new private async Task<(bool, int)> PutReal(string key, IStoredItem value)
+        private async Task<(bool, int)> PutReal(string key, IStoredItem value)
         {
             var bestNode = Chord.Lookup(key);
             if (bestNode == Chord.Node)
@@ -297,13 +297,13 @@ namespace ChordDHT.DHT
             }
         }
 
-        new public async Task<bool> Remove(string key)
+        public async Task<bool> Remove(string key)
         {
             var (result, hopCount) = await RemoveReal(key);
             return result;
         }
 
-        new private async Task<(bool, int)> RemoveReal(string key)
+        private async Task<(bool, int)> RemoveReal(string key)
         {
             var bestNode = Chord.Lookup(key);
             if (bestNode == Chord.Node)
@@ -371,7 +371,7 @@ namespace ChordDHT.DHT
                         // When walking the chord ring, we'll make a note of any nodes that we visit
                         var uri = new Uri(nextUrl);
                         var discoveredNode = uri.Host + ":" + uri.Port;
-                        Dev.Debug($"Detected a node named '{discoveredNode}' when performing a lookup");
+                        Logger.Debug($"Detected a node named '{discoveredNode}' when performing a lookup");
                         Chord.AddNode(discoveredNode);
                     }
                 }
