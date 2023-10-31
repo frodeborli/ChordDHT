@@ -42,12 +42,18 @@ namespace Fubber
             }
 
             // If sending data in chunks, finalize by writing an empty chunk
-            if (Context.Response.SendChunked)
+            try
             {
-                await Context.Response.OutputStream.WriteAsync(new byte[0], 0, 0);
-                await Context.Response.OutputStream.FlushAsync();
+                if (Context.Response.SendChunked)
+                {
+                    await Context.Response.OutputStream.WriteAsync(new byte[0], 0, 0);
+                    await Context.Response.OutputStream.FlushAsync();
+                }
+                Context.Response.Close();
+            } catch
+            {
+                // Ignore
             }
-            Context.Response.Close();
         }
 
 

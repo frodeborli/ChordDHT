@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ChordDHT.ChordProtocol;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -21,11 +22,22 @@ namespace ChordProtocol
             get; private set;
         }
 
+        [JsonIgnore]
+        public int? HopCount { get; } = null;
+
+        [JsonConstructor]
         public Node(string name, ulong hash)
         {
             Name = name;
             Hash = hash;
             Tag();
+        }
+
+        public Node(Node node, int hopCount)
+        {
+            Name = node.Name;
+            Hash = node.Hash;
+            HopCount = hopCount;
         }
 
         public void Tag()
@@ -35,7 +47,7 @@ namespace ChordProtocol
 
         override public string ToString()
         {
-            return $"[Node {Name}]";
+            return $"[Node {Name} {Util.Percent(Hash)}% ({Hash})]";
         }
 
         public override int GetHashCode()

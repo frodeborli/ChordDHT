@@ -66,11 +66,17 @@ namespace Fubber
                 throw new InvalidOperationException("WebApp is already running");
             }
 
-            Logger.Info("Launching application");
-
             CancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-            HttpListener.Start();
+            try
+            {
+                HttpListener.Start();
+            } catch (Exception ex)
+            {
+                Logger.Error($"Failed to start the application:\n{ex}");
+                Environment.Exit(1);
+                return;
+            }
             CancellationTokenSource.Token.Register(() => {
                 Logger.Info("Terminating application");
             });
@@ -96,7 +102,10 @@ namespace Fubber
                             {
                                 await httpContext.Send.NotFound();
                             }
-                            Logger.Info($"{context.Request.HttpMethod} {context.Request.RawUrl} {context.Response.StatusCode} {context.Response.StatusDescription}");
+                            if (context.Response.StatusCode != 200)
+                            {
+                                Logger.Info($"{context.Request.HttpMethod} {context.Request.RawUrl} {context.Response.StatusCode} {context.Response.StatusDescription}");
+                            }
                         }
                         catch (Exception ex)
                         {

@@ -1,7 +1,10 @@
 ﻿using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using ChordDHT.Benchmark;
+using ChordDHT.ChordProtocol;
 using ChordDHT.DHT;
+using ChordDHT.Fubber;
+using ChordProtocol;
 using Fubber;
 
 class Program
@@ -9,17 +12,24 @@ class Program
     public static void Main(string[] args)
     {
         var logger = Dev.Logger($"Main({string.Join(" ", args)})");
-        ThreadPool.SetMinThreads(16, 64);
+        int workerThreads;
+        int completionPortThreads;
+        ThreadPool.GetMaxThreads(out workerThreads, out completionPortThreads);
+        ThreadPool.SetMinThreads(workerThreads, completionPortThreads);
+        
         if (args.Length == 0)
         {
             Console.WriteLine("Usage:");
-            Console.WriteLine("  `chord serve <hostname> <port> [existing_node:port]`");
-            Console.WriteLine("     Start a chord node and optionally join an existing network.");
-            Console.WriteLine("  `chord multiserve <hostname> <start_port> <nodes_to_start>`");
-            Console.WriteLine("     Start multiple nodes on a single server.");
-            Console.WriteLine("     nodes_to_start is the total number of nodes, minimum 1.");
+            Console.WriteLine("  `chord serve <hostname> <port> <nodename> [existing_node:port]`");
+            Console.WriteLine("     Start a chord node and optionally join an existing network (by specifying an existing_node and port).\n");
+
+            Console.WriteLine("  `chord testserve <hostname> <port> <count>");
+            Console.WriteLine("     Start a multiple chord nodes without joining.\n");
+
+            Console.WriteLine("  `chord multiserve <hostname> <start_port> <nodes_to_start>`\n");
+            Console.WriteLine("     Start multiple nodes on a single server. All nodes will try to join on the first node started.\n");
             Console.WriteLine("  `chord benchmark <hostname:port> [hostname:port ...]");
-            Console.WriteLine("     Run benchmarks against a list of nodes.");
+            Console.WriteLine("     Run benchmarks against a list of nodes.\n");
             return;
         }
 
@@ -40,6 +50,10 @@ class Program
             case "benchmark":
                 // Start multiple nodes and run testing
                 Task.Run(() => Benchmark(args));
+                break;
+
+            case "testserve":
+                Task.Run(() => Testserve(args));
                 break;
         }
 
@@ -75,6 +89,44 @@ class Program
 
         Task.Run(async () => await RunWebServer(hostname, port, nodeName, nodeToJoin));
         logger.Debug("RunWebServer done");
+
+        void SyntaxError(string message)
+        {
+            logger.Error(message);
+            logger.Info($"Syntax: {args[0]} <hostname> <port number> <node name> [node to join]");
+        }
+    }
+
+    static void Testserve(string[] args)
+    {
+        var logger = Dev.Logger($"Serve({string.Join(" ", args)})");
+        if (args.Length < 4)
+        {
+            SyntaxError("At least 3 arguments required");
+            return;
+        }
+        var hostname = args[1];
+        var port = int.Parse(args[2]);
+        var nodeCountString = args[3] ?? null;
+        if (nodeCountString == null)
+        {
+            logger.Error("Requires a node count");
+            Environment.Exit(2);
+            return;
+        }
+        var nodeCount = int.Parse(nodeCountString);
+
+        var taskList = new List<Task>();
+        for (int nodeNumber = 0; nodeNumber <= nodeCount; nodeNumber++)
+        {
+            taskList.Add(RunWebServer(hostname, port + nodeNumber, $"{hostname}:{port + nodeNumber}"));
+        }
+
+        Task.WaitAny(taskList.ToArray());
+
+        logger.Debug($"At least one node terminated");
+        Environment.Exit(0);
+        return;
 
         void SyntaxError(string message)
         {
@@ -168,9 +220,10 @@ class Program
         await Task.Delay(2000);
 
         HttpClientHandler handler = new HttpClientHandler();
-        handler.MaxConnectionsPerServer = 256;
+        handler.MaxConnectionsPerServer = 512;
         HttpClient httpClient = new HttpClient(handler);
-        httpClient.MaxResponseContentBufferSize = 4096;
+        httpClient.Timeout = TimeSpan.FromSeconds(10);
+        httpClient.MaxResponseContentBufferSize = 65536;
         Random random = new Random();
         string[] keys = new string[10000];
         for (int i = 0; i < 10000; i++)
@@ -298,10 +351,20 @@ class Program
             logger.Info($"Starting DHTServer (hostname={hostname} port={port} nodeName={nodeName} nodeToJoin={nodeToJoin})");
             var dhtServer = new DHTServer(nodeName, new DictionaryStorageBackend());
 
+
+            // Whenever true stabilization will run regularly
+            bool runStabilization = true;
+
             /**
              * Simulating crash of the server
              */
-            SetupCrashHandling(dhtServer);
+            SetupCrashHandling(dhtServer, logger, () => {
+                // Crash is being simulated
+                runStabilization = false;
+            }, () => { 
+                // Crash no longer being simulated
+                runStabilization = true;
+            });
 
             var runTask = dhtServer.Run();
 
@@ -314,54 +377,93 @@ class Program
                 await dhtServer.JoinNetwork(nodeToJoin);
             }
 
+            while (!runTask.IsCompleted)
+            {
+                if (runStabilization)
+                {
+                    await dhtServer.RunStabilization();
+                }
+                await Task.Delay(Util.RandomInt(2000, 5000));
+            }
             await runTask;
-        } catch (Exception ex)
+        }
+        catch (Exception ex)
         {
             logger.Error($"Got exception:\n{ex}");
         }
     }
 
-    static void SetupCrashHandling(WebApp webApp)
+    static void SetupCrashHandling(DHTServer webApp, ILogger logger, Action onCrashSimEnabled, Action onCrashSimDisabled)
     {
-        Route NodeInfoRoute = new Route("GET", $"/node-info", new RequestDelegate(SimulatedCrashHandler), 100);
-        Route GetKeyRoute = new Route("GET", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100);
-        Route PutKeyRoute = new Route("PUT", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100);
-        Route DeleteKeyRoute = new Route("DELETE", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100);
-        Route OptionsRoute = new Route("OPTIONS", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100);
+        List<Route> routes = new List<Route>
+        {
+            new Route("PUT", "/chord-node-api", new RequestDelegate(SimulatedCrashHandler), 100),
+            new Route("GET", $"/node-info", new RequestDelegate(SimulatedCrashHandler), 100),
+            new Route("GET", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100),
+            new Route("PUT", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100),
+            new Route("DELETE", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100),
+            new Route("OPTIONS", $"/storage/(?<key>\\w+)", new RequestDelegate(SimulatedCrashHandler), 100),
+            new Route("GET|POST", "/leave", new RequestDelegate(SimulatedCrashHandler), 100),
+            new Route("GET|POST", "/join", new RequestDelegate(SimulatedCrashHandler), 100)
+        };
+        
+        List<Node>? nodesForRejoin = null;
 
-        bool isSimulatingCrash = false;
-
-        webApp.Router.AddRoute(new Route("GET", $"/sim-crash", async context => {
-            if (isSimulatingCrash)
+        webApp.Router.AddRoute(new Route("GET|POST", $"/sim-crash", async context => {
+            if (nodesForRejoin != null)
             {
                 await context.Send.JSON("Already simulating a crash");
             } else
             {
+                onCrashSimEnabled();
                 webApp.Logger.Debug("Crashed Chord Node simulation enabled");
-                webApp.Router.AddRoute(NodeInfoRoute);
-                webApp.Router.AddRoute(GetKeyRoute);
-                webApp.Router.AddRoute(PutKeyRoute);
-                webApp.Router.AddRoute(DeleteKeyRoute);
-                webApp.Router.AddRoute(OptionsRoute);
-                isSimulatingCrash = true;
+                foreach (var route in routes)
+                {
+                    webApp.Router.AddRoute(route);
+                }
+                nodesForRejoin = new List<Node>( webApp.Chord.GetKnownNodes() );
+                webApp.Detach();
                 await context.Send.JSON("Simulating a crash");
             }
         }));
-        webApp.Router.AddRoute(new Route("GET", $"/sim-recover", async context => {
-            if (!isSimulatingCrash)
+        webApp.Router.AddRoute(new Route("GET|POST", $"/sim-recover", async context => {
+            if (nodesForRejoin == null)
             {
                 await context.Send.JSON("I wasn't simulating a crash. Perhaps I actually crashed?");
             }
             else
             {
+                onCrashSimDisabled();
                 webApp.Logger.Debug("Crashed Chord Node simulation disabled");
-                webApp.Router.RemoveRoute(NodeInfoRoute);
-                webApp.Router.RemoveRoute(GetKeyRoute);
-                webApp.Router.RemoveRoute(PutKeyRoute);
-                webApp.Router.RemoveRoute(DeleteKeyRoute);
-                webApp.Router.RemoveRoute(OptionsRoute);
-                isSimulatingCrash = false;
-                await context.Send.JSON("Stopping crash simulation");
+                foreach (var route in routes)
+                {
+                    webApp.Router.RemoveRoute(route);
+                }
+                if (nodesForRejoin.Count == 0)
+                {
+                    await context.Send.Ok("Node recovered");
+                    return;
+                }
+                foreach (var rejoinCandidate in nodesForRejoin)
+                {
+                    if (rejoinCandidate == webApp.Chord.Node)
+                    {
+                        continue;
+                    }
+                    try
+                    {
+                        await webApp.JoinNetwork(rejoinCandidate.Name);
+                        logger.Info($"Node rejoined network via {rejoinCandidate.Name}");
+                        nodesForRejoin = null;
+                        await context.Send.JSON("Crash simulation stopped");
+                        return;
+                    }
+                    catch (Exception)
+                    {
+                        logger.Info($"Node could not rejoin network via {rejoinCandidate.Name}");
+                    }
+                }
+                await context.Send.Ok($"Node recovered but could not rejoin the network, tried to connect via {string.Join(", ", nodesForRejoin)}.");
             }
         }));
 
@@ -369,7 +471,7 @@ class Program
 
     static async Task SimulatedCrashHandler(HttpContext context)
     {
-        await Task.Delay(2000);
+        await Task.Delay(15000);
         await context.Send.InternalServerError();
     }
 

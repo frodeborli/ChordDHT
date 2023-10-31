@@ -11,6 +11,11 @@ namespace ChordDHT.DHT
     {
         private ConcurrentDictionary<string, IStoredItem> _dictionary = new ConcurrentDictionary<string, IStoredItem>();
 
+        public ConcurrentDictionary<string, IStoredItem> GetDictionary()
+        {
+            return _dictionary;
+        }
+
         public Task<bool> Remove(string key)
         {
             IStoredItem? removedItem;

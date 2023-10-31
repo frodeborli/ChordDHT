@@ -18,12 +18,20 @@ namespace Fubber
         public class LoggerContext : ILogger
         {
             public readonly string Prefix;
-            public ConsoleColor Color;
 
-            public LoggerContext(string prefix, ConsoleColor? color = default)
+            private List<string> Messages;
+            private LoggerContext? ParentLogger = null;
+
+            public LoggerContext(string prefix, LoggerContext? parentLogger = default)
             {
                 Prefix = prefix;
-                Color = color ?? Console.ForegroundColor;
+                ParentLogger = parentLogger;
+                Messages = ParentLogger?.Messages ?? new List<string>();
+            }
+
+            public List<string>? GetMessages()
+            {
+                return Messages;
             }
 
             public void Log(string logLevel, string message, object? values = null, ConsoleColor? color = default)
@@ -44,26 +52,24 @@ namespace Fubber
                 }
             }
 
-            public LoggerContext Logger(string name, ConsoleColor? color = default)
+            public LoggerContext Logger(string name)
             {
-                return new LoggerContext($"{Prefix}:{name}", color);
-            }
-
-            public void Write(string message, object? values = default, ConsoleColor? color = default)
-            {
-                var colorToUse = color ?? Color;
-                var oldColor = Console.ForegroundColor;
-                Console.ForegroundColor = colorToUse;
-                Console.Write(ParseTemplate(message, values));
-                Console.ForegroundColor = oldColor;
+                return new LoggerContext($"{Prefix}:{name}", this);
             }
 
             public void WriteLine(string message, object? values = default, ConsoleColor? color = default)
             {
-                var colorToUse = color ?? Color;
+                if (ParentLogger != null)
+                {
+                    ParentLogger.WriteLine(message, values, color);
+                    return;
+                }
+                var parsedMessage = ParseTemplate(message, values);
+                /// Messages.Add(parsedMessage);
+                var colorToUse = color ?? Console.ForegroundColor;
                 var oldColor = Console.ForegroundColor;
                 Console.ForegroundColor = colorToUse;
-                Console.WriteLine(ParseTemplate(message, values));
+                Console.WriteLine(parsedMessage);
                 Console.ForegroundColor = oldColor;
             }
 
@@ -103,9 +109,9 @@ namespace Fubber
             }
         }
 
-        public static LoggerContext Logger(string name, ConsoleColor? color = default) 
+        public static LoggerContext Logger(string name) 
         {
-            return new LoggerContext(name, color);
+            return new LoggerContext(name);
 
         }
 
@@ -134,8 +140,6 @@ namespace Fubber
         public static void Error(string message, object? values = null) => DefaultLogger.Error(message, values);
 
         public static void Dump(object o) => DefaultLogger.Dump(o);
-
-        public static void Write(string message, object? values = default) => DefaultLogger.Write(message, values);
 
         public static void WriteLine(string message, object? values = default) => DefaultLogger.WriteLine(message, values);
 

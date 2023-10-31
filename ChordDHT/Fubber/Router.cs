@@ -166,8 +166,13 @@ namespace Fubber
                     }
                     if (_methods.Contains(context.Request.HttpMethod.ToUpper()))
                     {
-                        var match = pattern.Match(context.Request.RawUrl);
-                        if (match.Success && match.Length == context.Request.RawUrl.Length)
+                        var rawUrl = context.Request.RawUrl;
+                        if (rawUrl.Contains("?"))
+                        {
+                            rawUrl = rawUrl.Substring(0, rawUrl.IndexOf("?"));
+                        }
+                        var match = pattern.Match(rawUrl);
+                        if (match.Success && match.Length == rawUrl.Length)
                         {
                             foreach (var item in pattern.GetGroupNames())
                             {

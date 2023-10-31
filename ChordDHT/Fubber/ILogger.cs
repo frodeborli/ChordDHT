@@ -13,9 +13,8 @@ namespace ChordDHT.Fubber
         /// Create a child logger context.
         /// </summary>
         /// <param name="prefix"></param>
-        /// <param name="color"></param>
         /// <returns></returns>
-        public LoggerContext Logger(string prefix, ConsoleColor? color = default);
+        public LoggerContext Logger(string prefix);
         
         /// <summary>
         /// Log a DEBUG level message.
@@ -58,5 +57,7 @@ namespace ChordDHT.Fubber
         /// <param name="message"></param>
         /// <param name="values"></param>
         public void Fatal(string message, object? values = default);
+
+        public List<string>? GetMessages();
     }
 }

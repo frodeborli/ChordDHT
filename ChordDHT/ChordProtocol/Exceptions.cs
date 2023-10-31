@@ -1,4 +1,5 @@
-﻿using System;
+﻿using ChordProtocol;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -6,29 +7,26 @@ using System.Threading.Tasks;
 
 namespace ChordDHT.ChordProtocol.Exceptions
 {
-    public class RedirectException : Exception
+    /// <summary>
+    /// When a request will not be fulfilled
+    /// </summary>
+    public class RejectedException : Exception
     {
-        public string TargetNode;
-        public RedirectException(string targetNode) : base($"Redirect to {targetNode} required")
-        {
-            TargetNode = targetNode;
-        }
-    }
-
-    public class RequestFailedException : Exception
-    {
-        public RequestFailedException(string reason) : base(reason)
+        public RejectedException(string reason) : base(reason)
         {
         }
     }
 
-    public class  NodeGoneException : Exception
+    /// <summary>
+    /// When a request fails due to any other problem (network or protocol errors)
+    /// </summary>
+    public class NetworkException : Exception
     {
-        public string NodeName;
+        public Node Node;
 
-        public NodeGoneException(string nodeName) : base($"Node {nodeName} is gone")
+        public NetworkException(Node node, string? reason=null) : base($"Node {node.Name} is gone{(reason != null ? $": {reason}" : "")}")
         {
-            NodeName = nodeName;
+            Node = node;
         }
     }
 }

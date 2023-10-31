@@ -1,10 +1,12 @@
 ﻿using ChordDHT.ChordProtocol;
 using ChordDHT.ChordProtocol.Exceptions;
+using ChordDHT.ChordProtocol.Messages;
 using ChordDHT.Fubber;
 using ChordProtocol;
 using Fubber;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Text;
@@ -13,90 +15,112 @@ using System.Threading.Tasks;
 
 namespace ChordDHT.DHT
 {
-    class DHTNetworkAdapter : IChordNetworkAdapter
+    class DHTNetworkAdapter : INetworkAdapter
     {
-        private WebApp WebApp;
+        private DHTServer App;
         private ILogger Logger;
         private Route Route;
-        private Dictionary<Type, IMessageHandler> MessageHandlers;                                 
+        private Dictionary<Type, IGenericRequestHandler> MessageHandlers;
+        private Chord Chord;
 
-        public DHTNetworkAdapter(WebApp webApp, ILogger logger)
+        public DHTNetworkAdapter(DHTServer webApp, ILogger logger, Chord chord)
         {
-            WebApp = webApp;
+            App = webApp;
             Logger = logger;
+            Chord = chord;
             Route = new Route("PUT", "/chord-node-api", RequestReceivedHandler);
-            MessageHandlers = new Dictionary<Type, IMessageHandler>();
-            WebApp.AppStarted += StartAsync;
-            WebApp.AppStopping += StopAsync;
+            MessageHandlers = new Dictionary<Type, IGenericRequestHandler>();
+            App.AppStarted += StartAsync;
+            App.AppStopping += StopAsync;
         }
 
-        public async Task<TResponseMessage> SendMessageAsync<TRequestMessage, TResponseMessage>(TRequestMessage message)
-            where TRequestMessage : IMessage
-            where TResponseMessage : IMessage
+        private string GetTargetUrl(Node node)
+        {
+            return $"http://{node.Name}/chord-node-api";
+        }
+
+        public async Task<TResponse> SendMessageAsync<TResponse>(IRequest<TResponse> message)
+            where TResponse : IResponse
         {
             if (message.Receiver == null)
             {
                 throw new NullReferenceException(nameof(message.Receiver));
             }
-            var targetUrl = $"http://{message.Receiver.Name}/chord-node-api";
 
-            var requestBody = new StringContent(message.ToJson(), Encoding.UTF8, "application/json");
+            var requestBody = new StringContent(Util.ToTypedJSON(message), Encoding.UTF8, "application/json");
 
             // Must follow redirects
             HttpResponseMessage? response = null;
 
-            do
+            var targetUrl = GetTargetUrl(message.Receiver);
+            try
             {
-                try
+                var cts = new CancellationTokenSource();
+                cts.CancelAfter(TimeSpan.FromSeconds(10));
+                var sw = Stopwatch.StartNew();
+                response = await App.HttpClient.PutAsync(targetUrl, requestBody, cts.Token);
+                sw.Stop();
+                if (sw.Elapsed > TimeSpan.FromMilliseconds(10))
                 {
-                    response = await WebApp.HttpClient.PutAsync(targetUrl, requestBody);
-                } catch (HttpRequestException)
-                {
-                    // node seems to be gone or down
-                    var goneNodeName = new Uri(targetUrl!).Authority;
-                    throw new NodeGoneException(goneNodeName);
+                    Logger.Debug($"{message.GetType().Name} @ {targetUrl} took {sw.Elapsed}");
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                Logger.Warn($"Request to {targetUrl} timed out");
+                throw new NetworkException(message.Receiver, "Request timed out");
+            } 
+            catch (HttpRequestException ex)
+            {
+                // node seems to be gone or down
+                throw new NetworkException(message.Receiver, ex.ToString());
+            }
 
-                if (response.StatusCode == HttpStatusCode.Redirect)
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorMessage = await response.Content.ReadAsStringAsync();
+                if ((int)response.StatusCode == 409)
                 {
-                    Logger.Debug($"Following redirect from {targetUrl} to {response.Headers.Location?.ToString()}");
-                    targetUrl = response.Headers?.Location?.ToString();                    
-                } else if (response.StatusCode == HttpStatusCode.InternalServerError)
-                {
-                    throw new RequestFailedException(await response.Content.ReadAsStringAsync());
-                } else if (!response.IsSuccessStatusCode)
-                {
-                    throw new InvalidOperationException($"SOMETHING FISHY HAPPN {(int)response.StatusCode}!");
+                    throw new RejectedException(errorMessage);
                 }
-            } while (!response.IsSuccessStatusCode && targetUrl != null);
+                else
+                {
+                    throw new Exception(errorMessage);
+                }
+            }
             
             string responseData = await response.Content.ReadAsStringAsync();
 
-            var responseMessage = Message.FromJson(responseData);
-            if (responseMessage is TResponseMessage typedResponseMessage)
+            var responseMessage = Util.FromTypedJSON(responseData);
+
+            if (responseMessage == null)
             {
-                return typedResponseMessage;
+                throw new NetworkException(message.Receiver, $"Failed to parse response: {responseData}");
             }
-            throw new InvalidDataException("The received response was not of the correct type");
+
+            if (!(responseMessage is TResponse responseMessageTyped))
+            {
+                throw new InvalidDataException($"The received response was not of the correct type: {responseMessage.GetType()}");
+            }
+
+            return responseMessageTyped;
         }
 
-        public void AddMessageHandler<TRequestMessage, TResponseMessage>(MessageHandler<TRequestMessage, TResponseMessage> handler)
-            where TRequestMessage : IMessage
-            where TResponseMessage : IMessage
+        public void AddHandler<TRequest, TResponse>(IRequestHandler<TRequest, TResponse> handler)
+            where TRequest : IRequest<TResponse>
+            where TResponse : IResponse
         {
-            if (MessageHandlers.ContainsKey(typeof(TRequestMessage)))
+            if (MessageHandlers.ContainsKey(typeof(TRequest)))
             {
-                throw new InvalidOperationException($"Already have a request handler for requests of type {typeof(TRequestMessage)} returning {typeof(TResponseMessage)}");
+                throw new InvalidOperationException($"Already have a request handler for requests of type {typeof(TRequest)} returning {typeof(TResponse)}");
             }
 
-            MessageHandlers[typeof(TRequestMessage)] = handler;
+            MessageHandlers[typeof(TRequest)] = (IGenericRequestHandler)handler;
         }
 
-        public void AddMessageHandler<TRequestMessage, TResponseMessage>(Func<TRequestMessage, Task<TResponseMessage>> handler)
-            where TRequestMessage : IMessage
-            where TResponseMessage : IMessage
-            => AddMessageHandler(new MessageHandler<TRequestMessage, TResponseMessage>(handler));
-
+        public void AddHandler<TRequest, TResponse>(Func<TRequest, Task<TResponse>> handler)
+            where TRequest : IRequest<TResponse>
+            where TResponse : IResponse => AddHandler(new RequestHandler<TRequest, TResponse>(handler));
 
         private async Task RequestReceivedHandler(HttpContext context)
         {
@@ -104,14 +128,30 @@ namespace ChordDHT.DHT
             StreamReader reader = new StreamReader(context.Request.InputStream);
             var requestBody = await reader.ReadToEndAsync();
 
-            var receivedMessage = Message.FromJson(requestBody);
+            var receivedMessageObject = Util.FromTypedJSON(requestBody);
 
-            if (receivedMessage == null)
+            if (receivedMessageObject == null)
             {
                 Logger.Error($"Received a message which was deserialized to null:\n{requestBody}");
                 await context.Send.BadRequest("Unable to parse message body");
                 return;
             }
+
+            if (!(receivedMessageObject is IGenericRequest receivedMessage))
+            {
+                Logger.Error($"Received a message which was not an IGenericRequest object:\n{requestBody}");
+                await context.Send.BadRequest("Illegal message type");
+                return;
+            }
+
+            /*
+            if (receivedMessage.Sender == receivedMessage.Receiver)
+            {
+                Logger.Error($"Received a message where sender and receiver is the same");
+                await context.Send.BadRequest("Sender and Receiver is the same");
+                return;
+            }
+            */
 
             if (!MessageHandlers.ContainsKey(receivedMessage.GetType()))
             {
@@ -125,33 +165,31 @@ namespace ChordDHT.DHT
             try
             {
                 var responseMessage = await handler.HandleMessageAsync(receivedMessage);
+                responseMessage.Id = receivedMessage.Id;
                 responseMessage.Sender = receivedMessage.Receiver;
                 responseMessage.Receiver = receivedMessage.Sender;
-                await context.Send.Ok(responseMessage.ToJson(), "application/json");
-            } catch (RequestFailedException ex)
+                await context.Send.Ok(Util.ToTypedJSON(responseMessage), "application/json");
+            }
+            catch (RejectedException ex)
+            {
+                await context.Send.Conflict(ex.Message);
+            }
+            catch (Exception ex)
             {
                 await context.Send.InternalServerError(ex.Message);
-            } catch (RedirectException ex)
-            {
-                // Redirect to a different endpoint
-                Uri thisUrl = context.Request.Url!;
-                string newUrl = $"{thisUrl.Scheme}://{ex.TargetNode}{thisUrl.PathAndQuery}";
-                await context.Send.TemporaryRedirect(newUrl);
             }
             return;
         }
 
         public Task StartAsync()
         {
-            Logger.Debug("Starting");
-            WebApp.Router.AddRoute(Route);
+            App.Router.AddRoute(Route);
             return Task.CompletedTask;
         }
 
         public Task StopAsync()
         {
-            Logger.Debug("Stopping");
-            WebApp.Router.RemoveRoute(Route);
+            App.Router.RemoveRoute(Route);
             return Task.CompletedTask;
         }
     }
