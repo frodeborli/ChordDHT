@@ -1,4 +1,6 @@
-﻿using System;
+﻿using ChordDHT.ChordProtocol;
+using ChordProtocol;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -24,6 +26,10 @@ namespace ChordDHT.DHT
         [JsonPropertyName("successor")]
         public string Successor { get; set; }
 
+        [JsonPropertyName("stable_time")]
+        public TimeSpan TimeSinceLastFingerTableUpdate { get; set;  }
 
+        [JsonPropertyName("finger_table")]
+        public FingerTableEntry[] FingerTable { get; set; }
     }
 }

@@ -60,9 +60,9 @@ namespace ChordDHT.DHT
                 var sw = Stopwatch.StartNew();
                 response = await App.HttpClient.PutAsync(targetUrl, requestBody, cts.Token);
                 sw.Stop();
-                if (sw.Elapsed > TimeSpan.FromMilliseconds(10))
+                if (sw.Elapsed > TimeSpan.FromMilliseconds(200))
                 {
-                    Logger.Debug($"{message.GetType().Name} @ {targetUrl} took {sw.Elapsed}");
+                    // Logger.Debug($"{message.GetType().Name} @ {targetUrl} took {sw.Elapsed}");
                 }
             }
             catch (OperationCanceledException)
@@ -85,7 +85,7 @@ namespace ChordDHT.DHT
                 }
                 else
                 {
-                    throw new Exception(errorMessage);
+                    throw new NetworkException(message.Receiver, $"Got error: {errorMessage}");
                 }
             }
             

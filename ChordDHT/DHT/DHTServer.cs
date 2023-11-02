@@ -44,6 +44,8 @@ namespace ChordDHT.DHT
 
         public void Detach() => Chord.Detach();
 
+        public void ResetState() => Chord.ResetState();
+
         public async Task RunStabilization()
         {
             await Chord.RunStabilization();
@@ -85,6 +87,8 @@ namespace ChordDHT.DHT
                 KnownNodes = Chord.GetKnownNodes().Select(n => n.Name).ToArray(),
                 Predecessor = Chord.PredecessorNode.Name,
                 Successor = Chord.SuccessorNode.Name,
+                FingerTable = Chord.GetFingerTable(),
+                TimeSinceLastFingerTableUpdate = DateTime.UtcNow - Chord.LastFingerTableChange,
             });
         }
 
@@ -191,14 +195,28 @@ namespace ChordDHT.DHT
                 return;
             }
 
-
-            try
+            int delay = 250;
+            for (int i = 0; i < 10; i++)
             {
-                await Chord.JoinNetwork(nprime);
-            } 
-            catch (Exception ex)
+                try
+                {
+                    await Chord.JoinNetwork(nprime);
+                    if (Chord.PredecessorNode != Chord.Node)
+                        break;
+                    Logger.Error("Joined at myself, so trying again");
+                    await Task.Delay(delay);
+                    delay *= 2;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Notice($"Join Network rejected, trying again in {delay} ms");
+                    await Task.Delay(delay);
+                    delay *= 2;
+                }
+            }
+            if (Chord.PredecessorNode == Chord.Node)
             {
-                Logger.Notice($"Tried to join node {nprime} but got error: {ex}");
+                Logger.Error($"Failed to join {nprime}");
                 await context.Send.InternalServerError($"Unable to join network at {nprime}");
                 return;
             }

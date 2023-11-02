@@ -115,6 +115,15 @@ namespace ChordDHT.ChordProtocol.Messages
         }
     }
 
+    public class JoinNetworkCompleted : Request<AckResponse>
+    {
+    }
+
+    public class PrepareForSuccessor : Request<AckResponse>
+    {
+
+    }
+
     public class RequestAsSuccessor : Request<MakeSuccessorResponse>
     {
         public Node FailedSuccessor { get; set; }
@@ -128,11 +137,25 @@ namespace ChordDHT.ChordProtocol.Messages
 
     public class MakeSuccessorResponse : Response
     {
-        public List<Node> Successors { get; set; }
+        public List<Node>? Successors { get; set; }
+        public Node? CurrentPredecessor { get; set; }
 
-        public MakeSuccessorResponse(List<Node> successors)
+        public MakeSuccessorResponse(List<Node>? successors)
         {
             Successors = successors;
+            CurrentPredecessor = null;
+        }
+
+        public MakeSuccessorResponse(Node redirectTo)
+        {
+            Successors = null;
+            CurrentPredecessor = redirectTo;
+        }
+
+        [JsonConstructor]
+        public MakeSuccessorResponse(List<Node>? successors, Node? redirectTo) : this(successors)
+        {
+            CurrentPredecessor = redirectTo;
         }
     }
 

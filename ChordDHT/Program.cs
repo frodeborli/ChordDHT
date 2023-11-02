@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.Http.Headers;
 using ChordDHT.Benchmark;
 using ChordDHT.ChordProtocol;
@@ -16,7 +17,8 @@ class Program
         int completionPortThreads;
         ThreadPool.GetMaxThreads(out workerThreads, out completionPortThreads);
         ThreadPool.SetMinThreads(workerThreads, completionPortThreads);
-        
+        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.AboveNormal;
+
         if (args.Length == 0)
         {
             Console.WriteLine("Usage:");
@@ -58,8 +60,8 @@ class Program
         }
 
         logger.Info("Running for 15 minutes at most");
-        Task.Delay(900000).Wait();
-        logger.Info("15 minutes have elapsed, terminating application");
+        Task.Delay(3600000).Wait();
+        logger.Info("30 minutes have elapsed, terminating application");
     }
 
     static void Serve(string[] args)
@@ -220,9 +222,9 @@ class Program
         await Task.Delay(2000);
 
         HttpClientHandler handler = new HttpClientHandler();
-        handler.MaxConnectionsPerServer = 512;
+        handler.MaxConnectionsPerServer = 64;
         HttpClient httpClient = new HttpClient(handler);
-        httpClient.Timeout = TimeSpan.FromSeconds(10);
+        httpClient.Timeout = TimeSpan.FromSeconds(20);
         httpClient.MaxResponseContentBufferSize = 65536;
         Random random = new Random();
         string[] keys = new string[10000];
@@ -361,6 +363,7 @@ class Program
             SetupCrashHandling(dhtServer, logger, () => {
                 // Crash is being simulated
                 runStabilization = false;
+                dhtServer.ResetState();
             }, () => { 
                 // Crash no longer being simulated
                 runStabilization = true;
@@ -383,7 +386,7 @@ class Program
                 {
                     await dhtServer.RunStabilization();
                 }
-                await Task.Delay(Util.RandomInt(2000, 5000));
+                await Task.Delay(Util.RandomInt(300, 600));
             }
             await runTask;
         }
@@ -471,7 +474,7 @@ class Program
 
     static async Task SimulatedCrashHandler(HttpContext context)
     {
-        await Task.Delay(15000);
+        await Task.Delay(1000);
         await context.Send.InternalServerError();
     }
 

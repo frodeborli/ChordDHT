@@ -65,7 +65,7 @@ namespace Fubber
                     return;
                 }
                 var parsedMessage = ParseTemplate(message, values);
-                /// Messages.Add(parsedMessage);
+                Messages.Add(parsedMessage);
                 var colorToUse = color ?? Console.ForegroundColor;
                 var oldColor = Console.ForegroundColor;
                 Console.ForegroundColor = colorToUse;

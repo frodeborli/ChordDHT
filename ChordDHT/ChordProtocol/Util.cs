@@ -132,6 +132,7 @@ namespace ChordDHT.ChordProtocol
                 return hash <= ceiling || hash >= floor;
             }
         }
+
         public static bool Ordered(ulong floor, ulong hash, ulong ceiling)
         {
             if (floor == ceiling) return hash == floor;

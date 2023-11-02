@@ -19,6 +19,8 @@ namespace ChordProtocol
 
         public void Add(Node node)
         {
+            if (ContainsKey(node.Name))
+                return;
             Add(node.Name, node);
         }
 
@@ -31,49 +33,6 @@ namespace ChordProtocol
         {
             Remove(node.Name);
         }
-
-        public Node? FindPredecessor(ulong hash)
-        {
-            if (this.Count == 0)
-            {
-                return null;
-            }
-            else if (this.Count == 1)
-            {
-                return this.ElementAt(0).Value;
-            }
-
-            int min = 0, max = this.Count - 1;
-            Node? predecessor = null;
-
-            while (min <= max)
-            {
-                int mid = (min + max) / 2;
-                var current = this.ElementAt(mid).Value;
-
-                if (current.Hash < hash)
-                {
-                    predecessor = current;
-                    min = mid + 1;
-                }
-                else
-                {
-                    max = mid - 1;
-                }
-            }
-
-            // Wrap-around case
-            if (predecessor == null)
-            {
-                predecessor = this.ElementAt(this.Count - 1).Value;
-            }
-
-            return predecessor;
-        }
-
-        public Node? FindPredecessor(string nodeName) => FindPredecessor(HashFunction(nodeName));
-
-        public Node? FindPredecessor(Node node) => FindPredecessor(node.Hash);
 
         public Node? FindSuccessor(Node node) => FindSuccessor(node.Hash);
         public Node? FindSuccessor(ulong hash)

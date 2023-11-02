@@ -9,7 +9,14 @@ namespace ChordProtocol
 {
     public interface INetworkAdapter
     {
-
+        /// <summary>
+        /// Send an asynchronous message to another node and wait for a response. The remote
+        /// node will handle this message by invoking the appropriate message handler which
+        /// will be registered via the AddHandler method.
+        /// </summary>
+        /// <typeparam name="TResponse"></typeparam>
+        /// <param name="message"></param>
+        /// <returns></returns>
         Task<TResponse> SendMessageAsync<TResponse>(IRequest<TResponse> message)
             where TResponse : IResponse;
         
