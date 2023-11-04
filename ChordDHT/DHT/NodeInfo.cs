@@ -31,5 +31,8 @@ namespace ChordDHT.DHT
 
         [JsonPropertyName("finger_table")]
         public FingerTableEntry[] FingerTable { get; set; }
+
+        [JsonPropertyName("finger_table_rebuilt")]
+        public TimeSpan TimeSinceLastFingerTableRebuilt { get; set; }
     }
 }

@@ -38,11 +38,30 @@ namespace ChordDHT.DHT
                 new Route("POST|GET", $"/join", RequestJoin),
                 new Route("POST|GET", $"/leave", RequestLeave),
                 new Route("GET", $"/debug", RequestDebug),
-                new Route("GET", "/all-nodes", GetAllNodesRequestHandler)
-            });
-        }
+                new Route("GET", "/all-nodes", GetAllNodesRequestHandler),
+                new Route("GET", "/reset", async (context) =>
+                {
+                    Logger.Ok("######################## RESET NODE ########################");
+                    await Chord.ResetState();
+                    await context.Send.Ok("Reset state");
+                }),
+                new Route("GET", "/find-successor/(?<key>[^/]+)", async (context) =>
+                {
+                    var key = context.RouteVariables["key"];
 
-        public void Detach() => Chord.Detach();
+                    var result = await Chord.FindSuccessor(Chord.Hash(key));
+                    await context.Send.JSON(result);
+                }),
+                new Route("GET", "/find-predecessor/(?<key>[^/]+)", async (context) =>
+                {
+                    var key = context.RouteVariables["key"];
+
+                    var result = await Chord.FindPredecessor(Chord.Hash(key));
+                    await context.Send.JSON(result);
+                })
+            });
+            HttpClient.Timeout = TimeSpan.FromSeconds(10);
+        }
 
         public void ResetState() => Chord.ResetState();
 
@@ -89,6 +108,7 @@ namespace ChordDHT.DHT
                 Successor = Chord.SuccessorNode.Name,
                 FingerTable = Chord.GetFingerTable(),
                 TimeSinceLastFingerTableUpdate = DateTime.UtcNow - Chord.LastFingerTableChange,
+                TimeSinceLastFingerTableRebuilt = DateTime.UtcNow - Chord.LastFingerTableCheck,
             });
         }
 
@@ -165,7 +185,7 @@ namespace ChordDHT.DHT
         private async Task RequestStorageKeyOptions(HttpContext context)
         {
             var key = context.RouteVariables["key"];
-            var node = await Chord.QuerySuccessor(key);
+            var node = await Chord.FindSuccessor(Chord.Hash(key));
             if (node.Name == NodeName)
             {
                 // This node is responsible for the key
@@ -299,7 +319,7 @@ namespace ChordDHT.DHT
         private async Task<(IStoredItem?, int)> GetReal(string key)
         {
             if (key == null) throw new NullReferenceException(nameof(key));
-            var bestNode = await Chord.QuerySuccessor(key);
+            var bestNode = await Chord.FindSuccessor(Chord.Hash(key));
             if (bestNode == Chord.Node)
             {
                 Logger.Debug($"Getting from storage backend the key {key}");
@@ -337,7 +357,7 @@ namespace ChordDHT.DHT
 
         private async Task<(bool, int)> PutReal(string key, IStoredItem value)
         {
-            var bestNode = await Chord.QuerySuccessor(key);
+            var bestNode = await Chord.FindSuccessor(Chord.Hash(key));
             if (bestNode == Chord.Node)
             {
                 return (await StorageBackend.Put(key, value), 0);
@@ -370,7 +390,7 @@ namespace ChordDHT.DHT
 
         private async Task<(bool, int)> RemoveReal(string key)
         {
-            var bestNode = await Chord.QuerySuccessor(key);
+            var bestNode = await Chord.FindSuccessor(Chord.Hash(key));
             if (bestNode == Chord.Node)
             {
                 return (await StorageBackend.Remove(key), 0);
@@ -402,7 +422,7 @@ namespace ChordDHT.DHT
          */
         public async Task<(string, int)> QueryKeyWithHopCount(string key)
         {
-            var bestNode = await Chord.QuerySuccessor(key);
+            var bestNode = await Chord.FindSuccessor(Chord.Hash(key));
 
             if (bestNode == Chord.Node)
             {

@@ -224,7 +224,7 @@ class Program
         HttpClientHandler handler = new HttpClientHandler();
         handler.MaxConnectionsPerServer = 64;
         HttpClient httpClient = new HttpClient(handler);
-        httpClient.Timeout = TimeSpan.FromSeconds(20);
+        httpClient.Timeout = TimeSpan.FromSeconds(60);
         httpClient.MaxResponseContentBufferSize = 65536;
         Random random = new Random();
         string[] keys = new string[10000];
@@ -425,7 +425,7 @@ class Program
                     webApp.Router.AddRoute(route);
                 }
                 nodesForRejoin = new List<Node>( webApp.Chord.GetKnownNodes() );
-                webApp.Detach();
+                webApp.ResetState();
                 await context.Send.JSON("Simulating a crash");
             }
         }));

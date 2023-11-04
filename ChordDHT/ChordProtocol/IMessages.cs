@@ -14,6 +14,8 @@ namespace ChordDHT.ChordProtocol
         public Guid Id { get; set; }
         public Node? Sender { get; set; }
         public Node? Receiver { get; set; }
+
+        public string ToString();
     }
 
     public interface IResponse : IMessage
@@ -32,4 +34,5 @@ namespace ChordDHT.ChordProtocol
     }
 
     public interface IGenericRequest : IMessage { }
+
 }

@@ -15,7 +15,14 @@ namespace ChordDHT.Fubber
         /// <param name="prefix"></param>
         /// <returns></returns>
         public LoggerContext Logger(string prefix);
-        
+
+        /// <summary>
+        /// Log an OK level message.
+        /// </summary>
+        /// <param name="message"></param>
+        /// <param name="values"></param>
+        public void Ok(string message, object? values = default);
+
         /// <summary>
         /// Log a DEBUG level message.
         /// </summary>

@@ -73,6 +73,11 @@ namespace Fubber
                 Console.ForegroundColor = oldColor;
             }
 
+            public void Ok(string message, object? values = null)
+            {
+                Log("OK", message, values, ConsoleColor.Green);
+            }
+
             public void Debug(string message, object? values = null)
             {
                 Log("DEBUG", message, values, ConsoleColor.Cyan);
@@ -128,6 +133,8 @@ namespace Fubber
                 return _DefaultLogger;
             }
         }
+
+        public static void Ok(string message, object? values = null) => DefaultLogger.Ok(message, values);
 
         public static void Debug(string message, object? values = null) => DefaultLogger.Debug(message, values);
 

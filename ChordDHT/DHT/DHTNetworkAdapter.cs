@@ -67,11 +67,12 @@ namespace ChordDHT.DHT
             }
             catch (OperationCanceledException)
             {
-                Logger.Warn($"Request to {targetUrl} timed out");
+                Logger.Warn($" - timeout for {message}");
                 throw new NetworkException(message.Receiver, "Request timed out");
             } 
             catch (HttpRequestException ex)
             {
+                Logger.Warn($" - network error for {message}");
                 // node seems to be gone or down
                 throw new NetworkException(message.Receiver, ex.ToString());
             }
@@ -81,10 +82,12 @@ namespace ChordDHT.DHT
                 var errorMessage = await response.Content.ReadAsStringAsync();
                 if ((int)response.StatusCode == 409)
                 {
+                    Logger.Warn($" - rejected {message}\n   {errorMessage}");
                     throw new RejectedException(errorMessage);
                 }
                 else
                 {
+                    Logger.Warn($" - rejected {message}\n   statusCode={response.StatusCode}\n");
                     throw new NetworkException(message.Receiver, $"Got error: {errorMessage}");
                 }
             }
@@ -95,11 +98,13 @@ namespace ChordDHT.DHT
 
             if (responseMessage == null)
             {
+                Logger.Warn($" - NULL response for {message}");
                 throw new NetworkException(message.Receiver, $"Failed to parse response: {responseData}");
             }
 
             if (!(responseMessage is TResponse responseMessageTyped))
             {
+                Logger.Warn($" - invalid response for {message}");
                 throw new InvalidDataException($"The received response was not of the correct type: {responseMessage.GetType()}");
             }
 
