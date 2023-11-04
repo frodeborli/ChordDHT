@@ -775,25 +775,35 @@ namespace ChordProtocol
                         try
                         {
                             var nodeInfo = await SendMessageAsync(Finger[i], new RequestNodeInfo());
-                            Logger.Debug($"{Util.Percent(start)} {Finger[i]} {nodeInfo.PredecessorNode}");
                             if (!Util.Inside(nodeInfo.PredecessorNode.Hash, start, Node.Hash))
                             {
-                                Logger.Ok("Fast finger table update");
+                                // We have the correct finger
                                 node = Finger[i];
+                                // Caching long because we are certain
+                                FingerCache.Set(start, node, TimeSpan.FromMilliseconds(Util.RandomInt(3000, 10000)));
+                            }
+                            else if (Util.RandomInt(0, 100) < 90)
+                            {
+                                // Node at the finger has a better predecessor so we use most of the time
+                                node = nodeInfo.PredecessorNode;
+                                // Caching short because we might not have found the best finger node yet
+                                //FingerCache.Set(start, node, TimeSpan.FromMilliseconds(Util.RandomInt(500, 2000)));
                             }
                             else
                             {
-                                Logger.Warn($"Used FindSuccessor to update finger table");
                                 node = await FindSuccessor(start);
+                                // Caching long because we are certain
+                                FingerCache.Set(start, node, TimeSpan.FromMilliseconds(Util.RandomInt(3000, 10000)));
                             }
                         }
                         catch
                         {
                             Logger.Warn($"Used FindSuccessor to update finger table");
                             node = await FindSuccessor(start);
+                            // Caching long because we are certain
+                            FingerCache.Set(start, node, TimeSpan.FromMilliseconds(Util.RandomInt(3000, 10000)));
                         }
 
-                        FingerCache.Set(start, node, TimeSpan.FromMilliseconds(Util.RandomInt(2000, 5000)));
                     }
                     
                 }
