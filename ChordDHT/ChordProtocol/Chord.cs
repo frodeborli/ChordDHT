@@ -138,9 +138,36 @@ namespace ChordProtocol
 
         private void SetupMessageHandlers()
         {
+            NetworkAdapter.AddHandler(async (InformNodeGone request) => {
+                // Confirm that node is in fact gone
+                try
+                {
+                    var result = await SendMessageAsync(request.GoneNode, new RequestNodeInfo());
+                    throw new RejectedException("Node is not gone");
+                }
+                catch
+                {
+                    // Node is in fact gone
+                    return await NeighborManager.Serial(() => {
+                        Logger.Info($"Was informed that {request.GoneNode} is gone");
+                        var (predecessorNode, successorNode) = GetNeighbors();
+                        if (request.GoneNode == predecessorNode)
+                        {
+                            PredecessorFailed = true;
+                        }
+                        if (request.GoneNode == successorNode)
+                        {
+                            SuccessorFailed = true;
+                        }
+                        FingerTableRemove(request.GoneNode);
+                        return Task.FromResult(new AcknowledgeReply());
+                    });
+                }
+            });
             NetworkAdapter.AddHandler((FindPredecessor request) =>
             {
-                if (Util.Inside(request.Hash, Node.Hash + 1, SuccessorNode.Hash))
+                var (_, successorNode) = GetNeighbors();
+                if (Util.Inside(request.Hash, Node.Hash + 1, successorNode.Hash))
                 {
                     return Task.FromResult(new FindPredecessorReply(Node, false));
                 }
@@ -148,9 +175,10 @@ namespace ChordProtocol
                 return Task.FromResult(new FindPredecessorReply(predecessor, true));
             });
             NetworkAdapter.AddHandler((FindSuccessor request) => {
-                if (Util.Inside(request.Hash, Node.Hash + 1, SuccessorNode.Hash))
+                var (_, successorNode) = GetNeighbors();
+                if (Util.Inside(request.Hash, Node.Hash + 1, successorNode.Hash))
                 {
-                    return Task.FromResult(new FindSuccessorReply(SuccessorNode, false));
+                    return Task.FromResult(new FindSuccessorReply(successorNode, false));
                 }
                 var (predecessor, successor) = FingerTableQuery(request.Hash);
                 return Task.FromResult(new FindSuccessorReply(predecessor, true));
@@ -159,27 +187,36 @@ namespace ChordProtocol
             {
                 Logger.Info($"Node {request.Sender} is asking us to become its successor");
 
+                // Making the test outside of the NeighborManager, to avoid locking if possible
+                var (predecessorNode, predecessorFailed, successorNode, successorFailed) = GetNeighborsWithState();
+                if (!predecessorFailed)
+                {
+                    Logger.Notice($" - Rejecting new predecessor {request.Sender} since our current predecessor {predecessorNode} is not marked as failed");
+                    return new BecomeMySuccessorReply(predecessorNode);
+                }
+
                 return await NeighborManager.Serial(() =>
                 {
-                    if (PredecessorFailed)
+                    var (predecessorNode, predecessorFailed, successorNode, successorFailed) = GetNeighborsWithState();
+                    if (predecessorFailed)
                     {
-                        Logger.Info($" - Accepting a new predecessor {request.Sender} since our current predecessor {PredecessorNode} is failed");
-                        PredecessorNode = request.Sender;
-                        PredecessorFailed = false;
+                        Logger.Info($" - Accepting a new predecessor {request.Sender} since our current predecessor {predecessorNode} is failed");
+                        SetNeighbors(predecessor: request.Sender, predecessorFailed: false);
                         LogState();
                         return Task.FromResult(new BecomeMySuccessorReply(MakeSuccessorsList()));
                     }
                     else
                     {
-                        Logger.Notice($" - Rejecting new predecessor {request.Sender} since our current predecessor {PredecessorNode} is not marked as failed");
-                        return Task.FromResult(new BecomeMySuccessorReply(PredecessorNode));
+                        Logger.Notice($" - Rejecting new predecessor {request.Sender} since our current predecessor {predecessorNode} is not marked as failed");
+                        return Task.FromResult(new BecomeMySuccessorReply(predecessorNode));
                     }
                 });
             });
             NetworkAdapter.AddHandler((RequestNodeInfo request) =>
             {
                 FingerTableAdd(request.Sender);
-                return Task.FromResult(new NodeInfoReply(PredecessorNode, SuccessorNode, MakeSuccessorsList(), Node.Hash, Node.Name));
+                var (predecessorNode, successorNode) = GetNeighbors();
+                return Task.FromResult(new NodeInfoReply(predecessorNode, successorNode, MakeSuccessorsList(), Node.Hash, Node.Name));
 
                 /*
                 return await NeighborManager.Serial(() =>
@@ -196,22 +233,27 @@ namespace ChordProtocol
                  */
                 Logger.Info($"Node {request.Sender} is telling us that it is leaving");
 
+                // try to avoid NeighborManager
+                var (predecessorNode, successorNode) = GetNeighbors();
+                if (request.LeavingNode == successorNode)
+                    return new AcknowledgeReply();
+
                 // Random delay to help with bursts
-                await Task.Delay(Util.RandomInt(100, 1000));
+                // await Task.Delay(Util.RandomInt(100, 1000));
 
                 return await NeighborManager.Serial(async () =>
                 {
-                    if (request.LeavingNode == SuccessorNode)
+                    var (predecessorNode, successorNode) = GetNeighbors();
+                    if (request.LeavingNode == successorNode)
                     {
                         // Our successor is leaving, ignore
 
                     }
-                    else if (request.LeavingNode == PredecessorNode)
+                    else if (request.LeavingNode == predecessorNode)
                     {
                         // Predecessor is leaving
                         await SendMessageAsync(request.PredecessorNode, new YouHaveNewSuccessor(Node, MakeSuccessorsList()));
-                        PredecessorNode = request.PredecessorNode;
-                        PredecessorFailed = false;
+                        SetNeighbors(predecessor: request.PredecessorNode, predecessorFailed: false);
                         FingerTableRemove(request.Sender);
                     }
 
@@ -228,9 +270,9 @@ namespace ChordProtocol
 
                 return await NeighborManager.Serial(() =>
                 {
-                    SuccessorNode = request.SuccessorNode;
+                    SetNeighbors(successor: request.SuccessorNode, successorFailed: false);
                     SetSuccessorsList(request.Successors);
-                    Logger.Ok($"NotifyNewSuccessor-handler: Accepted new successor {SuccessorNode} from {request.Sender}");
+                    Logger.Ok($"NotifyNewSuccessor-handler: Accepted new successor {request.SuccessorNode} from {request.Sender}");
                     LogState();
                     return Task.FromResult(new AcknowledgeReply());
                 });
@@ -247,27 +289,37 @@ namespace ChordProtocol
                  */
                 // Random delay to help with bursts
                 // await Task.Delay(Util.RandomInt(100, 1000));
+                var (predecessorNode, successorNode) = GetNeighbors();
+                if (request.Sender == predecessorNode)
+                {
+                    Logger.Error("Our predecessor is trying to rejoin here!!!");
+
+                }
+                if (!Util.Inside(request.Sender!.Hash, predecessorNode.Hash + 1, Node.Hash))
+                {
+                    // Requester is not trying to join in
+                    Logger.Info($" - Rejecting join for {request.Sender} because it is not in my key space range from {predecessorNode} to {Node}");
+                    throw new RejectedException("Must join at the correct successor");
+                }
+                else if (PredecessorFailed)
+                {
+                    Logger.Info($" - Rejecting join for {request.Sender} because of a failed predecessor");
+                    throw new RejectedException("Temporarily can't accept joins");
+                }
 
                 return await NeighborManager.Serial(async () => {
-                    if (!Util.Inside(request.Sender!.Hash, PredecessorNode.Hash + 1, Node.Hash))
-                    {
-                        // Requester is not trying to join in
-                        Logger.Info($" - Rejecting join for {request.Sender} because it is not in my key space range from {PredecessorNode} to {Node}");
-                        throw new RejectedException("Must join at the correct successor");
-                    }
-                    else if (PredecessorFailed)
-                    {
-                        Logger.Info($" - Rejecting join for {request.Sender} because of a failed predecessor");
-                        throw new RejectedException("Temporarily can't accept joins");
-                    }
 
                     JoinNetworkReply response;
 
+                    var (predecessorNode, successorNode) = GetNeighbors();
 
-                    if (PredecessorNode == Node)
+                    Node? setSuccessorNode = null;
+                    bool? setSuccessorFailed = null;
+
+                    if (predecessorNode == Node)
                     {
-                        SuccessorNode = request.Sender;
-                        SuccessorFailed = false;
+                        setSuccessorNode = request.Sender;
+                        setSuccessorFailed = false;
                         SetSuccessorsList(new List<Node> { SuccessorNode });
                         response = new JoinNetworkReply(Node, Node, MakeSuccessorsList());
                     }
@@ -278,8 +330,12 @@ namespace ChordProtocol
                         var predecessorSaid = await SendMessageAsync(PredecessorNode, new YouHaveNewSuccessor(request.Sender, preSuccessors));
                         response = new JoinNetworkReply(PredecessorNode, Node, MakeSuccessorsList());
                     }
-                    PredecessorNode = request.Sender;
-                    PredecessorFailed = false;
+                    SetNeighbors(
+                        predecessor: request.Sender,
+                        predecessorFailed: false,
+                        successor: setSuccessorNode,
+                        successorFailed: setSuccessorFailed
+                        );
 
                     Logger.Ok("Node handling the join is rebuilding the finger table");
                     FingerTableAdd(request.Sender);
@@ -288,203 +344,68 @@ namespace ChordProtocol
 
                     return response;
                 });
-
-                /*
-
-                if (!await UpdateLock.AcquireAsync(TimeSpan.FromSeconds(10)))
-                {
-                    Logger.Debug("Unable to aquire lock for join request");
-                    throw new RejectedException("Busy, try again.");
-                }
-
-                try
-                {                    
-                    if (!Util.Inside(request.Sender.Hash, PredecessorNode.Hash + 1, Node.Hash))
-                    {
-                        Logger.Info($"Rejecting join for {request.Sender} because it is joining on the incorrect successor ({PredecessorNode} < {request.Sender} <= {Node})");
-                        throw new RejectedException("Must join at the correct successor");
-                    }
-                    else if (PredecessorFailed)
-                    {
-                        Logger.Info($"Rejecting join for {request.Sender} because of a failed predecessor");
-                        throw new RejectedException("Temporarily can't accept joins");
-                    }
-                    else if (HasJoiningPredecessor != null)
-                    {
-                        Logger.Info($"Rejecting join for {request.Sender} because we're handling another join ({HasJoiningPredecessor})");
-                        throw new RejectedException("Another node is already joining here");
-                    }
-                    else if (HasJoiningSuccessor != null)
-                    {
-                        Logger.Info($"Rejecting join for {request.Sender} because we're handling another successor join ({HasJoiningPredecessor})");
-                        throw new RejectedException("Another node is becoming our successor");
-                    }
-                    else if (JoiningPredecessor != null)
-                    {
-                        Logger.Info($"Rejecting join for {request.Sender} because we're waiting for ack from another join ({JoiningPredecessor})");
-                        throw new RejectedException("Another node is already joining here");
-                    }
-
-                    if (JoinLockedUntil != null && JoinLockedUntil < DateTime.UtcNow)
-                    {
-                        Logger.Warn($"Not accepting joins just yet");
-                        throw new RejectedException("Not accepting joins just yet");
-                    }
-                    JoinLockedUntil = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-
-                    if (PredecessorNode == Node)
-                    {
-                        JoiningPredecessor = request.Sender;
-                        _ = Task.Run(async () =>
-                        {
-                            var sender = request.Sender;
-                            await Task.Delay(10000);
-                            if (JoiningPredecessor == sender)
-                            {
-                                Logger.Warn("Clearing JoiningPredecessor after timeout");
-                                JoiningPredecessor = null;
-                            }
-                        });
-                        // No need to notify about the new successor
-                        return new JoinNetworkResponse(Node, Node, new List<Node> { request.Sender });
-                    }
-
-                    HasJoiningPredecessor = DateTime.UtcNow;
-
-                    try
-                    {
-                        Logger.Notice($"Notifying predecessor {PredecessorNode} to prepare for a join");
-                        var ack = await SendMessageAsync(PredecessorNode, new PrepareForSuccessor());
-                        Logger.Notice($"Predecessor {PredecessorNode} accepted to prepare for a join");
-                    }
-                    catch
-                    {
-                        HasJoiningPredecessor = null;
-                        Logger.Error($"Rejecting join for {request.Sender} because predecessor say it's expecting a successor");
-                        throw new RejectedException("Predecessor busy, try again");
-                    }
-
-                    var myOldPredecessor = PredecessorNode;
-
-                    try
-                    {
-                        var successorsList = MakeSuccessorsList();
-                        successorsList.Insert(0, PredecessorNode);
-                        // Notify the predecessor about the new joining node
-                        await SendMessageAsync(PredecessorNode, new NotifyNewSuccessor(request.Sender, Node, successorsList));
-                        // Successor has updated
-                        var newSuccessorList = MakeSuccessorsList();
-                        JoiningPredecessor = request.Sender;
-                        _ = Task.Run(async () =>
-                        {
-                            var sender = request.Sender;
-                            await Task.Delay(10000);
-                            if (JoiningPredecessor == sender)
-                            {
-                                Logger.Warn("Clearing JoiningPredecessor after timeout");
-                                JoiningPredecessor = null;
-                            }
-                        });
-                        return new JoinNetworkResponse(Node, myOldPredecessor, newSuccessorList);
-
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Debug($"Exception when notifying predecessor {PredecessorNode} about the new joining node {request.Sender}:\n{ex}");
-                        throw new RejectedException("Unable to update predecessor node with new successor:\n{ex}");
-                    }
-                    finally
-                    {
-                        HasJoiningPredecessor = null;
-                    }
-                }
-                finally
-                {
-                    await Task.Delay(500);
-                    UpdateLock.Release();
-                }
-                */
             });
 
-            /*
-            NetworkAdapter.AddHandler(async (LeavingNetwork request) => 
+
+        }
+
+        /// <summary>
+        /// Find a successor without using our own finger table
+        /// </summary>
+        /// <param name="key"></param>
+        /// <param name="viaNode"></param>
+        /// <returns></returns>
+        /// <exception cref="Exception"></exception>
+        public async Task<Node> FindSuccessor(ulong key, Node viaNode)
+        {
+            var (predecessorNode, predecessorFailed, successorNode, successorFailed) = GetNeighborsWithState();
+            FindSuccessorReply joinLookup;
+            int hopCount = 0;
+            while (true)
             {
-                Logger.Info($"Node {request.LeavingNode} is leaving");
-                //return new AckResponse();
-
-                if (!await UpdateLock.AcquireAsync(TimeSpan.FromSeconds(10)))
+                if (hopCount++ > 200)
                 {
-                    Logger.Debug("Unable to aquire lock for leave network request");
-                    throw new RejectedException("Busy, try again");
+                    throw new Exception("Stopping after 200 hops");
                 }
-
-                try
+                if (hopCount > 20)
                 {
-                    if (request.LeavingNode == SuccessorNode)
+                    // Introduce random delay because it seems the finger table needs to update somewhere
+                    await Task.Delay(Util.RandomInt(10, 100));
+                }
+                joinLookup = await SendMessageAsync(viaNode, new FindSuccessor(key));
+                if (!joinLookup.IsRedirect)
+                {
+                    return new Node(joinLookup.Node, hopCount);
+                }
+                if (joinLookup.Node == Node)
+                {
+                    Logger.Warn("FindSuccessor via redirected back to us!");
+                    // We were redirected back to ourselves, try various remedies
+                    if (!successorFailed)
                     {
-                        Logger.Info($"{request.LeavingNode} leaving: Replacing successor {SuccessorNode} with {request.SuccessorNode}");
-                        SuccessorNode = request.SuccessorNode;
+                        Logger.Error("Going via our successor node which is not failed");
+                        viaNode = successorNode;
                     }
-
-                    // If it is our predecessor that is leaving, take over its successor
-                    if (request.LeavingNode == PredecessorNode)
+                    else if (SuccessorsList.Count > 1)
                     {
-                        Logger.Info($"{request.LeavingNode} leaving: Replacing predecessor {PredecessorNode} with {request.PredecessorNode}");
-                        // To do: We should've transferred all keys from our predecessor before this completes
-                        PredecessorNode = request.PredecessorNode;
+                        Logger.Error("Going via our backup successor node");
+                        viaNode = SuccessorsList[1];
                     }
-
-                    FingerTableRemove(request.LeavingNode);
-                }
-                finally
-                {
-                    UpdateLock.Release();
-                }
-
-                return new AckResponse();
-            });
-            */
-
-
-            /*
-            NetworkAdapter.AddHandler(async (NotifyNewSuccessor request) =>
-            {
-
-                if (!await UpdateLock.AcquireAsync(TimeSpan.FromSeconds(10)))
-                {
-                    Logger.Debug("Unable to aquire lock for notify new successor request");
-                    throw new RejectedException("Busy, try again");
-                }
-
-                try
-                {
-                    if (HasJoiningSuccessor == null)
+                    else if (!predecessorFailed)
                     {
-                        Logger.Error("Was not notified about a joining successor");
-                        throw new RejectedException("We haven't been notified about a new successor joining");
+                        Logger.Error("Going via our predecessor which is not failed");
+                        viaNode = predecessorNode;
                     }
-
-                    if (request.SuccessorNode != SuccessorNode)
+                    else
                     {
-                        throw new RejectedException("We will only accept join notifications from our successor");
+                        throw new Exception("UNABLE TO FIND WITHOUT ASKING OURSELVES");
                     }
-
-                    SuccessorNode = request.JoiningNode;
-
-                    // Ensure this node goes straight into the finger table
-                    FingerTableAdd(request.JoiningNode);
-
-                    HasJoiningSuccessor = null;
-
-                    return new AckResponse();
                 }
-                finally
+                else
                 {
-                    UpdateLock.Release();
+                    viaNode = joinLookup.Node;
                 }
-            });
-            */
-
+            }
         }
 
         public async Task<Node> FindSuccessor(ulong key)
@@ -494,16 +415,65 @@ namespace ChordProtocol
             {
                 return new Node(SuccessorNode, hopCount);
             }
+            var (predecessorNode, predecessorFailed, successorNode, successorFailed) = GetNeighborsWithState();
             var (predecessor, successor) = FingerTableQuery(key);
+            Node? previousNode = null;
+            StartOver:
             while (true)
             {
                 hopCount++;
+                if (hopCount > 100)
+                {
+                    throw new Exception("Reached 100 hops");
+                }
                 if (hopCount > 20)
                 {
                     // Introduce random delay because it seems the finger table needs to update somewhere
-                    await Task.Delay(Util.RandomInt(100, 900));
+                    await Task.Delay(Util.RandomInt(10, 100));
                 }
-                var result = await SendMessageAsync(predecessor, new FindSuccessor(key));
+                FindSuccessorReply result;
+                try
+                {
+                    result = await SendMessageAsync(predecessor, new FindSuccessor(key));
+                    previousNode = predecessor;
+                }
+                catch (NetworkException e)
+                {                    
+                    if (previousNode == null)
+                    {
+                        Logger.Warn($"We found a node {predecessor} that was down in our own finger table");
+                        if (predecessor == predecessorNode)
+                        {
+                            Logger.Error("Our predecessor is down, not sure if we must do anything with that here");
+                            SetNeighbors(predecessorFailed: true);
+                        }
+                        else if (predecessor == successorNode)
+                        {
+                            Logger.Error("Our successor is down, not sure if we must do anything with that here");
+                            SetNeighbors(successorFailed: true);
+                        }
+                        // we were not redirected, this node was in our finger table
+                        FingerTableRemove(predecessor);
+
+                        // find the new predecessor from the finger table
+                        (predecessor, _) = FingerTableQuery(key);
+                        goto StartOver;
+                    }
+                    else
+                    {
+                        // We were redirected by a previous result
+                        Logger.Warn($"Informing {previousNode} that {predecessor} is gone");
+                        try
+                        {
+                            await SendMessageAsync(previousNode, new InformNodeGone(predecessor));
+                        }
+                        catch { }
+                        Logger.Warn($"Repeating request to {previousNode}");
+                        predecessor = previousNode;
+                        goto StartOver;
+                    }
+                }
+                
                 if (!result.IsRedirect)
                 {
                     if (hopCount > 50)
@@ -513,10 +483,6 @@ namespace ChordProtocol
                     return new Node(result.Node, hopCount);
                 }
                 predecessor = result.Node;
-                if (hopCount > 100)
-                {
-                    throw new Exception("Reached 100 hops");
-                }
             }
         }
         public async Task<Node> FindPredecessor(ulong key)
@@ -542,43 +508,6 @@ namespace ChordProtocol
                 }
             }
         }
-
-        /// <summary>
-        /// Find the nearest successor including key (searching for key 123 can return node 123)
-        /// </summary>
-        /// <param name="key"></param>
-        /// <returns></returns>
-        /*
-        public async Task<Node> QuerySuccessor(ulong key)
-        {
-            if (Util.Inside(key, PredecessorNode.Hash + 1, Node.Hash))
-            {
-                // Key belongs with this node
-                return Node;
-            }
-
-            var (predecessor, successor) = FingerTableQuery(key);
-
-            int hopCount = 0;
-            while (true)
-            {
-                hopCount++;
-                var result = await SendMessageAsync(predecessor, new FindPredecessor(key));
-
-                if (result.IsRedirect)
-                {
-                    predecessor = result.Node;
-                }
-                else
-                {
-                    return new Node(result.Node, hopCount);
-                }
-            }
-        }
-        
-        public Task<Node> QuerySuccessor(string key) => QuerySuccessor(Hash(key));
-        public Task<Node> QuerySuccessor(Node node) => QuerySuccessor(node.Hash);
-        */
         public Task JoinNetwork(string nodeToJoin) => JoinNetwork(MakeNode(nodeToJoin));
         public async Task JoinNetwork(Node nodeToJoin)
         {
@@ -591,20 +520,8 @@ namespace ChordProtocol
 
             await NeighborManager.Serial(async () =>
             {
-                FindSuccessorReply joinLookup;
-                while (true)
-                {
-                    joinLookup = await SendMessageAsync(nodeToJoin, new FindSuccessor(Node.Hash));
-                    if (joinLookup.IsRedirect)
-                    {
-                        nodeToJoin = joinLookup.Node;
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
-                var joiningTo = joinLookup.Node;
+                var joiningTo = await FindSuccessor(Node.Hash, nodeToJoin);
+
                 if (joiningTo == Node)
                 {
                     // If QuerySuccessor returns the current node, it means the node to join was down and QuerySuccessor fell back to the successor
@@ -616,8 +533,7 @@ namespace ChordProtocol
                 {
                     var joinRequested = await SendMessageAsync(joiningTo, new JoinNetwork());
 
-                    PredecessorNode = joinRequested.PredecessorNode;
-                    SuccessorNode = joinRequested.SuccessorNode;
+                    SetNeighbors(predecessor: joinRequested.PredecessorNode, predecessorFailed: false, successor: joinRequested.SuccessorNode, successorFailed: false);
                     SetSuccessorsList(joinRequested.Successors);
                     Logger.Ok("Joining node is rebuilding the finger table");
                     await BuildFingerTable();
@@ -654,10 +570,7 @@ namespace ChordProtocol
 
             await NeighborManager.Serial(() =>
             {
-                PredecessorNode = Node;
-                PredecessorFailed = false;
-                SuccessorNode = Node;
-                SuccessorFailed = false;
+                SetNeighbors(Node, Node, false, false);
                 SuccessorsList = new List<Node>();
                 LastFingerTableChange = DateTime.UtcNow;
 
@@ -686,7 +599,27 @@ namespace ChordProtocol
 
         public Node[] GetKnownNodes()
         {
-            return Finger.Distinct().ToArray();
+            var nodes = new List<Node>(Finger.Distinct());
+
+            var (predecessorNode, successorNode) = GetNeighbors();
+
+            if (!nodes.Contains(predecessorNode))
+            {
+                nodes.Add(predecessorNode);
+            }
+            if (!nodes.Contains(successorNode))
+            {
+                nodes.Add(successorNode);
+            }
+            foreach (var node in SuccessorsList)
+            {
+                if (!nodes.Contains(node))
+                {
+                    nodes.Add(node);
+                }
+            }
+
+            return nodes.ToArray();
         }
 
         /// <summary>
@@ -701,49 +634,90 @@ namespace ChordProtocol
                 return;
             }
 
-            try
+            // Stabilize predecessor, but skip if we can't get a lock on it
+            await NeighborManager.TrySerial(async () =>
             {
-                var predecessor = await SendMessageAsync(PredecessorNode, new RequestNodeInfo());
-                if (predecessor.SuccessorNode != Node)
+                var (predecessorNode, predecessorFailed, successorNode, successorFailed) = GetNeighborsWithState();
+                try
                 {
-                    Logger.Warn($"Predecessor reports having a different successor {predecessor.SuccessorNode} than me");
-                    PredecessorFailed = true;
+                    var predecessor = await SendMessageAsync(predecessorNode, new RequestNodeInfo());
+                    if (predecessor.SuccessorNode != Node)
+                    {
+                        Logger.Warn($"Predecessor reports having a different successor {predecessor.SuccessorNode} than me {Node}");
+                        SetNeighbors(predecessorFailed: true);
+                    }
+                    else
+                    {
+                        SetNeighbors(predecessorFailed: false);
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    PredecessorFailed = false;
+                    Logger.Warn($"Predecessor did not respond:\n{ex}");
+                    SetNeighbors(predecessorFailed: true);
                 }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warn($"Predecessor did not respond:\n{ex}");
-                PredecessorFailed = true;
-            }
+            });
 
-            try
+            await NeighborManager.TrySerial(async () =>
             {
-                var successor = await SendMessageAsync(SuccessorNode, new RequestNodeInfo());
-                if (successor.PredecessorNode != Node)
+                var (predecessorNode, predecessorFailed, successorNode, successorFailed) = GetNeighborsWithState();
+                // Stabilize successor
+                try
                 {
-                    Logger.Warn($"Successor reports having a different predecessor {successor.PredecessorNode} than me");
-                    Logger.Error("SUCCESSOR CRAP");
-                    SuccessorFailed = true;
+                    var successor = await SendMessageAsync(successorNode, new RequestNodeInfo());
+                    if (successor.PredecessorNode != Node)
+                    {
+                        Logger.Warn($"Successor reports having a different predecessor {successor.PredecessorNode} than me");
+                        Logger.Error("SUCCESSOR CRAP");
+                        SetNeighbors(successorFailed: true);
+                    }
+                    else
+                    {
+                        SetNeighbors(successorFailed: false);
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    SuccessorFailed = false;
+                    Logger.Warn($"Successor did not respond:\n{ex}");
+                    SetNeighbors(successorFailed: true);
                 }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error("SUCCESSOR CRAP");
-                Logger.Warn($"Successor did not respond:\n{ex}");
-                SuccessorFailed = true;
-            }
+            });
 
             if (SuccessorFailed)
             {
-                Logger.Error($"SUCCESSOR FAILED {SuccessorFailedCounter++} times");
+                await NeighborManager.Serial(async () => {
+                    var (predecessorNode, predecessorFailed, successorNode, successorFailed) = GetNeighborsWithState();
+                    foreach (var backupNode in SuccessorsList)
+                    {
+                        if (backupNode == SuccessorNode)
+                            continue;
+
+                        Logger.Warn($"Trying to replace successor with {backupNode}");
+
+                        try
+                        {
+                            var nodeInfo = await SendMessageAsync(backupNode, new RequestNodeInfo());
+                            var result = await SendMessageAsync(backupNode, new BecomeMySuccessor(SuccessorNode));
+                            if (result.Successors != null)
+                            {
+                                Logger.Ok($"We have a new successor {backupNode}");
+                                // The node accepted to become our successor
+                                SetNeighbors(successor: backupNode, successorFailed: false);
+                                SuccessorsList = result.Successors;
+                                SuccessorFailedCounter = 0;
+                                break;
+                            }
+                        }
+                        catch (Exception ex) {
+
+                            Logger.Error($"Error trying to replace successor:\n{ex}");
+                        }
+                    }
+                });
+            }
+            else
+            {
+                SuccessorFailedCounter = 0;
             }
 
             await BuildFingerTable();
@@ -807,6 +781,7 @@ namespace ChordProtocol
                     }
                     
                 }
+
                 // Logger.Debug($"Finger {i} {Util.Percent(start)}: {node}");
                 if (PredecessorNode == Node)
                 {
@@ -817,47 +792,6 @@ namespace ChordProtocol
             }
             return;
         }
-        /*
-        public async Task ComplexCrapBuildFingerTable(int maxNodesToUpdate = 2)
-        {
-            bool didChange = false;
-            var firstFinger = NextFingerToRebuild;
-            Node? previousNode = null;
-            Node? node;
-            while (maxNodesToUpdate-- > 0)
-            {
-                var start = Node.Hash + Util.Pow(2, (ulong)NextFingerToRebuild);
-
-                while (Util.Inside(node.Hash, start, Node.Hash))
-                {
-                    // The node.Hash is between start and Node.Hash inclusive, taking into account the circular keyspace
-                    if (Finger[NextFingerToRebuild] != node)
-                    {
-                        didChange = true;
-                    }
-                    Finger[NextFingerToRebuild] = node;
-                    NextFingerToRebuild = (NextFingerToRebuild + 1) % FingerCount;
-                    if (NextFingerToRebuild == 0 || !Util.Inside(node.Hash, Node.Hash + Util.Pow(2, (ulong)NextFingerToRebuild), Node.Hash))
-                    {
-                        // Ensure that node is not used for earlier fingers or fingers that it shouldn't be used for
-                        break;
-                    }
-                    start = Node.Hash + Util.Pow(2, (ulong)NextFingerToRebuild);
-                }
-                if (NextFingerToRebuild == firstFinger)
-                {
-                    // Never update any fingers twice
-                    break;
-                }
-            }
-            if (didChange)
-            {
-                Logger.Ok("Finger table updated");
-                LastFingerTableChange = DateTime.UtcNow;
-            }
-            return;
-        }
-        */
 
         /// <summary>
         /// Calculate the hash value of a byte array using the injected hash function.
@@ -873,6 +807,7 @@ namespace ChordProtocol
             message.Sender = Node;
             message.Receiver = to;
 
+            // Logger.Error($"Sending message\n{message}");
             var result = await NetworkAdapter.SendMessageAsync(message);
             result = message.Filter(result);
             return result;
@@ -912,7 +847,8 @@ namespace ChordProtocol
         {
             if (nodeToDelete == SuccessorNode)
             {
-                throw new Exception("Can't remove the successor node from the finger table");
+                // Will not remove the successor node from the finger table
+                return;
             }
 
             Node[] newFingerTable = (Node[])Finger.Clone();
@@ -989,14 +925,15 @@ namespace ChordProtocol
             {
                 throw new Exception("Will not set an empty successors list");
             }
+            var (predecessorNode, successorNode) = GetNeighbors();
             List<Node> newSuccessors = new List<Node>();
             foreach (Node node in successors)
             {
                 if (newSuccessors.Count == 0)
                 {
-                    if (node != SuccessorNode)
+                    if (node != successorNode)
                     {
-                        throw new Exception($"Expected first node {node} in successors list to be my successor {SuccessorNode}");
+                        throw new Exception($"Expected first node {node} in successors list to be my successor {successorNode}");
                     }
                     newSuccessors.Add(node);
                     continue;
@@ -1005,7 +942,7 @@ namespace ChordProtocol
                 {
                     break;
                 }
-                if (node == PredecessorNode)
+                if (node == predecessorNode)
                 {
                     break;
                 }
@@ -1060,14 +997,16 @@ namespace ChordProtocol
 
         private void LogState()
         {
-            Logger.Debug($"STATE {Node} predecessor={PredecessorNode} successor={SuccessorNode}");
+            var (predecessorNode, successorNode) = GetNeighbors();
+            Logger.Debug($"STATE {Node} predecessor={predecessorNode} successor={successorNode}");
         }
 
         private NodeList GetNodeList()
         {
+            var (predecessorNode, predecessorFailed, successorNode, successorFailed) = GetNeighborsWithState();
             NodeList list = new NodeList(HashFunction);
-            if (!PredecessorFailed) list.Add(PredecessorNode);
-            if (!SuccessorFailed) list.Add(SuccessorNode);
+            if (!predecessorFailed) list.Add(predecessorNode);
+            if (!successorFailed) list.Add(successorNode);
             foreach (var failover in SuccessorsList)
             {
                 list.Add(failover);
@@ -1077,6 +1016,43 @@ namespace ChordProtocol
                 list.Add(finger);
             }
             return list;
+        }
+
+        /**
+         * Atomic get of one or both neighbors
+         */
+        private (Node, Node) GetNeighbors()
+        {
+            lock (PredecessorNode)
+            {
+                return (PredecessorNode, SuccessorNode);
+            }
+        }
+
+        private (Node, bool, Node, bool) GetNeighborsWithState()
+        {
+            lock (PredecessorNode)
+            {
+                return (PredecessorNode, PredecessorFailed, SuccessorNode, SuccessorFailed);
+            }
+        }
+
+        /**
+         * Atomic set of one or both neighbors
+         */
+        private void SetNeighbors(Node? predecessor = null, Node? successor = null, bool? predecessorFailed = null, bool? successorFailed = null)
+        {
+            lock (PredecessorNode)
+            {
+                if (predecessor != null)
+                    PredecessorNode = predecessor;
+                if (predecessorFailed != null)
+                    PredecessorFailed = (bool)predecessorFailed;
+                if (successor != null)
+                    SuccessorNode = successor;
+                if (successorFailed != null)
+                    SuccessorFailed = (bool)successorFailed;
+            }
         }
 
         public string GetDebugInfo()

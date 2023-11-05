@@ -68,14 +68,24 @@ namespace ChordDHT.ChordProtocol
                 throw new InvalidDataException("$type annotation missing from message");
             }
 
+
             var typeName = jsonObject["$type"].GetString();
             if (typeName == null)
             {
                 throw new InvalidDataException("$type annotation missing from message");
             }
+            jsonObject.Remove("$type");
 
             var type = Type.GetType(typeName);
-            return JsonSerializer.Deserialize(json, type ?? typeof(object));
+            try
+            {
+                return JsonSerializer.Deserialize(json, type ?? typeof(object));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"--- JSON: {json}");
+                throw;
+            }
         }
 
         public static string ToTypedJSON<T>(T o)

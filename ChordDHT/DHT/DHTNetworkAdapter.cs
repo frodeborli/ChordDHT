@@ -7,6 +7,7 @@ using Fubber;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Linq;
 using System.Net;
 using System.Text;
@@ -169,7 +170,14 @@ namespace ChordDHT.DHT
 
             try
             {
+                var sw = new Stopwatch();
+                sw.Start();
                 var responseMessage = await handler.HandleMessageAsync(receivedMessage);
+                sw.Stop();
+                if (sw.ElapsedMilliseconds > 50)
+                {
+                    Logger.Warn($"Spent {sw.ElapsedMilliseconds} ms in handler for {receivedMessage.GetType().Name}");
+                }
                 responseMessage.Id = receivedMessage.Id;
                 responseMessage.Sender = receivedMessage.Receiver;
                 responseMessage.Receiver = receivedMessage.Sender;

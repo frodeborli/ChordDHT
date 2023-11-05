@@ -16,12 +16,10 @@ namespace ChordDHT.ChordProtocol.Messages
         public ulong Hash { get; set; }
 
         [JsonConstructor]
-        public FindPredecessor(ulong hash)
+        public FindPredecessor(ulong hash, Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
         {
             Hash = hash;
         }
-
-        public FindPredecessor(Node node) : this(node.Hash) { }
 
         public override string ToString()
         {
@@ -39,7 +37,7 @@ namespace ChordDHT.ChordProtocol.Messages
         public bool IsRedirect { get; set; }
 
         [JsonConstructor]
-        public FindPredecessorReply(Node node, bool isRedirect)
+        public FindPredecessorReply(Node node, bool isRedirect, Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
         {
             Node = node;
             IsRedirect = isRedirect;
@@ -51,6 +49,17 @@ namespace ChordDHT.ChordProtocol.Messages
         }
     }
 
+    public class InformNodeGone : Request<AcknowledgeReply>
+    {
+        public Node GoneNode { get; set; }
+
+        [JsonConstructor]
+        public InformNodeGone(Node goneNode, Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
+        {
+            GoneNode = goneNode;
+        }
+    }
+
     /// <summary>
     /// Request to find the predecessor of the given Hash value
     /// </summary>
@@ -59,12 +68,10 @@ namespace ChordDHT.ChordProtocol.Messages
         public ulong Hash { get; set; }
 
         [JsonConstructor]
-        public FindSuccessor(ulong hash)
+        public FindSuccessor(ulong hash, Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
         {
             Hash = hash;
         }
-
-        public FindSuccessor(Node node) : this(node.Hash) { }
 
         public override string ToString()
         {
@@ -81,7 +88,7 @@ namespace ChordDHT.ChordProtocol.Messages
         public bool IsRedirect { get; set; }
 
         [JsonConstructor]
-        public FindSuccessorReply(Node node, bool isRedirect)
+        public FindSuccessorReply(Node node, bool isRedirect, Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
         {
             Node = node;
             IsRedirect = isRedirect;
@@ -103,7 +110,7 @@ namespace ChordDHT.ChordProtocol.Messages
         public Node PredecessorNode { get; set; }
 
         [JsonConstructor]
-        public LeavingNetwork(Node leavingNode, Node successorNode, Node predecessorNode)
+        public LeavingNetwork(Node leavingNode, Node successorNode, Node predecessorNode, Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
         {
             LeavingNode = leavingNode;
             SuccessorNode = successorNode;
@@ -117,6 +124,10 @@ namespace ChordDHT.ChordProtocol.Messages
     }
 
     public class RequestNodeInfo : Request<NodeInfoReply> {
+
+        [JsonConstructor]
+        public RequestNodeInfo(Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
+        { }
         public override string ToString()
         {
             return $"(RequestNodeInfo from={(Sender != null ? Sender : "NULL")} to={(Receiver != null ? Receiver : "NULL")})";
@@ -136,7 +147,7 @@ namespace ChordDHT.ChordProtocol.Messages
         public List<Node> Successors { get; set; } = new List<Node>();
 
         [JsonConstructor]
-        public NodeInfoReply(Node? predecessorNode, Node successorNode, List<Node> successors, ulong hash, string name)
+        public NodeInfoReply(Node? predecessorNode, Node successorNode, List<Node> successors, ulong hash, string name, Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
         {
             PredecessorNode = predecessorNode;
             SuccessorNode = successorNode;
@@ -156,6 +167,9 @@ namespace ChordDHT.ChordProtocol.Messages
     /// </summary>
     public class JoinNetwork : Request<JoinNetworkReply> {
 
+        [JsonConstructor]
+        public JoinNetwork(Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
+        { }
         public override string ToString()
         {
             return $"(JoinNetwork from={(Sender != null ? Sender : "NULL")} to={(Receiver != null ? Receiver : "NULL")})";
@@ -199,7 +213,7 @@ namespace ChordDHT.ChordProtocol.Messages
         public Node FailedSuccessor { get; set; }
 
         [JsonConstructor]
-        public BecomeMySuccessor(Node failedSuccessor)
+        public BecomeMySuccessor(Node failedSuccessor, Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
         {
             FailedSuccessor = failedSuccessor;
         }
@@ -212,13 +226,14 @@ namespace ChordDHT.ChordProtocol.Messages
 
     public class BecomeMySuccessorReply : Response
     {
-        public List<Node> Successors { get; set; } = new List<Node>();
+        public List<Node>? Successors { get; set; } = null;
         public Node? CurrentPredecessor { get; set; }
 
         public BecomeMySuccessorReply(List<Node>? successors)
         {
             Successors = successors;
             CurrentPredecessor = null;
+            
         }
 
         public BecomeMySuccessorReply(Node redirectTo)
@@ -227,10 +242,16 @@ namespace ChordDHT.ChordProtocol.Messages
             CurrentPredecessor = redirectTo;
         }
 
-        [JsonConstructor]
-        public BecomeMySuccessorReply(List<Node>? successors, Node? redirectTo) : this(successors)
+        public BecomeMySuccessorReply(List<Node>? successors, Node? currentPredecessor) : this(successors)
         {
-            CurrentPredecessor = redirectTo;
+            CurrentPredecessor = currentPredecessor;
+        }
+
+        [JsonConstructor]
+        public BecomeMySuccessorReply(List<Node>? successors, Node? currentPredecessor, Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
+        {
+            Successors = successors;
+            CurrentPredecessor = currentPredecessor;
         }
 
         public override string ToString()
@@ -255,7 +276,7 @@ namespace ChordDHT.ChordProtocol.Messages
         public List<Node> Successors { get; set; } = new List<Node>();
 
         [JsonConstructor]
-        public YouHaveNewSuccessor(Node successorNode, List<Node> successors)
+        public YouHaveNewSuccessor(Node successorNode, List<Node> successors, Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
         {
             SuccessorNode = successorNode;
             Successors = successors;
@@ -271,10 +292,16 @@ namespace ChordDHT.ChordProtocol.Messages
     /// Generic response message which contains no other data.
     /// </summary>
     public class AcknowledgeReply : Response {
+
+        [JsonConstructor]
+        public AcknowledgeReply(Guid? id = null, Node? sender = null, Node? receiver = null) : base(id, sender, receiver)
+        { }
+
         public override string ToString()
         {
             return $"(Acknowledge-reply from={(Sender != null ? Sender : "NULL")} to={(Receiver != null ? Receiver : "NULL")})";
         }
+
     }
 
 

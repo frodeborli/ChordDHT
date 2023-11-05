@@ -11,7 +11,7 @@ namespace ChordDHT.ChordProtocol
 
     public interface IMessage
     {
-        public Guid Id { get; set; }
+        public Guid? Id { get; set; }
         public Node? Sender { get; set; }
         public Node? Receiver { get; set; }
 

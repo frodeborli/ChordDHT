@@ -353,6 +353,13 @@ class Program
             logger.Info($"Starting DHTServer (hostname={hostname} port={port} nodeName={nodeName} nodeToJoin={nodeToJoin})");
             var dhtServer = new DHTServer(nodeName, new DictionaryStorageBackend());
 
+            dhtServer.Router.AddRoute(
+                new Route("GET", "/frode", async (context) =>
+                {
+                    await context.Send.Ok("Known nodes: " + string.Join(", ", dhtServer.Chord.GetKnownNodes().Select(n => n.Name)));
+                })
+            );
+
 
             // Whenever true stabilization will run regularly
             bool runStabilization = true;
@@ -396,7 +403,7 @@ class Program
         }
     }
 
-    static void SetupCrashHandling(DHTServer webApp, ILogger logger, Action onCrashSimEnabled, Action onCrashSimDisabled)
+    static void SetupCrashHandling(DHTServer dhtServer, ILogger logger, Action onCrashSimEnabled, Action onCrashSimDisabled)
     {
         List<Route> routes = new List<Route>
         {
@@ -410,26 +417,26 @@ class Program
             new Route("GET|POST", "/join", new RequestDelegate(SimulatedCrashHandler), 100)
         };
         
-        List<Node>? nodesForRejoin = null;
+        List<string>? nodesForRejoin = null;
 
-        webApp.Router.AddRoute(new Route("GET|POST", $"/sim-crash", async context => {
+        dhtServer.Router.AddRoute(new Route("GET|POST", $"/sim-crash", async context => {
             if (nodesForRejoin != null)
             {
                 await context.Send.JSON("Already simulating a crash");
             } else
             {
+                nodesForRejoin = new List<string>(dhtServer.Chord.GetKnownNodes().Select(n => n.Name));
                 onCrashSimEnabled();
-                webApp.Logger.Debug("Crashed Chord Node simulation enabled");
+                dhtServer.Logger.Debug("Crashed Chord Node simulation enabled");
                 foreach (var route in routes)
                 {
-                    webApp.Router.AddRoute(route);
+                    dhtServer.Router.AddRoute(route);
                 }
-                nodesForRejoin = new List<Node>( webApp.Chord.GetKnownNodes() );
-                webApp.ResetState();
-                await context.Send.JSON("Simulating a crash");
+                dhtServer.ResetState();
+                await context.Send.JSON($"Simulating a crash: Remembering {string.Join(", ", nodesForRejoin)}");
             }
         }));
-        webApp.Router.AddRoute(new Route("GET|POST", $"/sim-recover", async context => {
+        dhtServer.Router.AddRoute(new Route("GET|POST", $"/sim-recover", async context => {
             if (nodesForRejoin == null)
             {
                 await context.Send.JSON("I wasn't simulating a crash. Perhaps I actually crashed?");
@@ -437,10 +444,10 @@ class Program
             else
             {
                 onCrashSimDisabled();
-                webApp.Logger.Debug("Crashed Chord Node simulation disabled");
+                dhtServer.Logger.Debug("Crashed Chord Node simulation disabled");
                 foreach (var route in routes)
                 {
-                    webApp.Router.RemoveRoute(route);
+                    dhtServer.Router.RemoveRoute(route);
                 }
                 if (nodesForRejoin.Count == 0)
                 {
@@ -449,21 +456,22 @@ class Program
                 }
                 foreach (var rejoinCandidate in nodesForRejoin)
                 {
-                    if (rejoinCandidate == webApp.Chord.Node)
+                    logger.Info($"Trying to rejoin via {rejoinCandidate}");
+                    if (rejoinCandidate == dhtServer.Chord.Node.Name)
                     {
                         continue;
                     }
                     try
                     {
-                        await webApp.JoinNetwork(rejoinCandidate.Name);
-                        logger.Info($"Node rejoined network via {rejoinCandidate.Name}");
+                        await dhtServer.JoinNetwork(rejoinCandidate);
+                        logger.Info($"Node rejoined network via {rejoinCandidate}");
                         nodesForRejoin = null;
                         await context.Send.JSON("Crash simulation stopped");
                         return;
                     }
                     catch (Exception)
                     {
-                        logger.Info($"Node could not rejoin network via {rejoinCandidate.Name}");
+                        logger.Info($"Node could not rejoin network via {rejoinCandidate}");
                     }
                 }
                 await context.Send.Ok($"Node recovered but could not rejoin the network, tried to connect via {string.Join(", ", nodesForRejoin)}.");
