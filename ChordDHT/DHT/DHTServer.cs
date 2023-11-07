@@ -27,7 +27,7 @@ namespace ChordDHT.DHT
         {
             NodeName = nodeName;
             StorageBackend = storageBackend;
-            NetworkAdapter = new DHTNetworkAdapter(this, Logger.Logger("NetworkAdapter"), Chord);
+            NetworkAdapter = new DHTNetworkAdapter(this, Logger.Logger("NetworkAdapter"));
             Chord = new Chord(nodeName, NetworkAdapter, Logger.Logger("Chord"));
             Router.AddRoute(new Route[] {
                 new Route("GET", $"/node-info", RequestNodeInfo),
@@ -60,7 +60,7 @@ namespace ChordDHT.DHT
                     await context.Send.JSON(result);
                 })
             });
-            HttpClient.Timeout = TimeSpan.FromSeconds(10);
+            HttpClient.Timeout = TimeSpan.FromSeconds(30);
         }
 
         public void ResetState() => Chord.ResetState();
@@ -229,7 +229,7 @@ namespace ChordDHT.DHT
                 }
                 catch (Exception ex)
                 {
-                    Logger.Notice($"Join Network rejected, trying again in {delay} ms");
+                    Logger.Notice($"Join Network rejected, trying again in {delay} ms\n{ex}");
                     await Task.Delay(delay);
                     delay *= 2;
                 }

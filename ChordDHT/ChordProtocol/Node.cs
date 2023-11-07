@@ -14,6 +14,7 @@ namespace ChordProtocol
         public string Name { get; private set; }
 
         [JsonPropertyName("hash")]
+        [JsonConverter(typeof(Util.JsonUlongAsHex))]
         public ulong Hash { get; private set; }
 
         [JsonIgnore]

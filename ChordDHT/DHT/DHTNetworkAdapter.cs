@@ -5,6 +5,7 @@ using ChordDHT.Fubber;
 using ChordProtocol;
 using Fubber;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -22,17 +23,21 @@ namespace ChordDHT.DHT
         private ILogger Logger;
         private Route Route;
         private Dictionary<Type, IGenericRequestHandler> MessageHandlers;
-        private Chord Chord;
+        private Chord? Chord = null;
 
-        public DHTNetworkAdapter(DHTServer webApp, ILogger logger, Chord chord)
+        public DHTNetworkAdapter(DHTServer webApp, ILogger logger)
         {
             App = webApp;
             Logger = logger;
-            Chord = chord;
             Route = new Route("PUT", "/chord-node-api", RequestReceivedHandler);
             MessageHandlers = new Dictionary<Type, IGenericRequestHandler>();
             App.AppStarted += StartAsync;
             App.AppStopping += StopAsync;
+        }
+
+        public void SetChord(Chord chord)
+        {
+            Chord = chord;
         }
 
         private string GetTargetUrl(Node node)
@@ -40,42 +45,44 @@ namespace ChordDHT.DHT
             return $"http://{node.Name}/chord-node-api";
         }
 
-        public async Task<TResponse> SendMessageAsync<TResponse>(IRequest<TResponse> message)
+        public async Task<TResponse> SendMessageAsync<TResponse>(Node receiver, IRequest<TResponse> message)
             where TResponse : IResponse
         {
-            if (message.Receiver == null)
+            if (receiver == null)
             {
-                throw new NullReferenceException(nameof(message.Receiver));
+                throw new NullReferenceException(nameof(receiver));
             }
+
+            var messageType = message.GetType().Name;
 
             var requestBody = new StringContent(Util.ToTypedJSON(message), Encoding.UTF8, "application/json");
 
             // Must follow redirects
             HttpResponseMessage? response = null;
 
-            var targetUrl = GetTargetUrl(message.Receiver);
+            var targetUrl = GetTargetUrl(receiver);
             try
             {
                 var cts = new CancellationTokenSource();
-                cts.CancelAfter(TimeSpan.FromSeconds(10));
+                cts.CancelAfter(TimeSpan.FromSeconds(30));
                 var sw = Stopwatch.StartNew();
                 response = await App.HttpClient.PutAsync(targetUrl, requestBody, cts.Token);
                 sw.Stop();
                 if (sw.Elapsed > TimeSpan.FromMilliseconds(200))
                 {
-                    // Logger.Debug($"{message.GetType().Name} @ {targetUrl} took {sw.Elapsed}");
+                    Logger.Debug($"{message.GetType().Name} @ {targetUrl} took {sw.Elapsed}");
                 }
             }
             catch (OperationCanceledException)
             {
                 Logger.Warn($" - timeout for {message}");
-                throw new NetworkException(message.Receiver, "Request timed out");
+                throw new NetworkException(receiver, "Request timed out");
             } 
             catch (HttpRequestException ex)
             {
                 Logger.Warn($" - network error for {message}");
                 // node seems to be gone or down
-                throw new NetworkException(message.Receiver, ex.ToString());
+                throw new NetworkException(receiver, ex.ToString());
             }
 
             if (!response.IsSuccessStatusCode)
@@ -88,8 +95,8 @@ namespace ChordDHT.DHT
                 }
                 else
                 {
-                    Logger.Warn($" - rejected {message}\n   statusCode={response.StatusCode}\n");
-                    throw new NetworkException(message.Receiver, $"Got error: {errorMessage}");
+                    Logger.Warn($" - failed {message}\n   statusCode={response.StatusCode}\n");
+                    throw new NetworkException(receiver, $"Got error: {errorMessage}");
                 }
             }
             
@@ -100,7 +107,7 @@ namespace ChordDHT.DHT
             if (responseMessage == null)
             {
                 Logger.Warn($" - NULL response for {message}");
-                throw new NetworkException(message.Receiver, $"Failed to parse response: {responseData}");
+                throw new NetworkException(receiver, $"Failed to parse response: {responseData}");
             }
 
             if (!(responseMessage is TResponse responseMessageTyped))
@@ -150,15 +157,6 @@ namespace ChordDHT.DHT
                 return;
             }
 
-            /*
-            if (receivedMessage.Sender == receivedMessage.Receiver)
-            {
-                Logger.Error($"Received a message where sender and receiver is the same");
-                await context.Send.BadRequest("Sender and Receiver is the same");
-                return;
-            }
-            */
-
             if (!MessageHandlers.ContainsKey(receivedMessage.GetType()))
             {
                 Logger.Error($"Received unsupported message type {receivedMessage.GetType().Name}");
@@ -178,9 +176,6 @@ namespace ChordDHT.DHT
                 {
                     Logger.Warn($"Spent {sw.ElapsedMilliseconds} ms in handler for {receivedMessage.GetType().Name}");
                 }
-                responseMessage.Id = receivedMessage.Id;
-                responseMessage.Sender = receivedMessage.Receiver;
-                responseMessage.Receiver = receivedMessage.Sender;
                 await context.Send.Ok(Util.ToTypedJSON(responseMessage), "application/json");
             }
             catch (RejectedException ex)

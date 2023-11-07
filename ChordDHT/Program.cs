@@ -17,7 +17,6 @@ class Program
         int completionPortThreads;
         ThreadPool.GetMaxThreads(out workerThreads, out completionPortThreads);
         ThreadPool.SetMinThreads(workerThreads, completionPortThreads);
-        Process.GetCurrentProcess().PriorityClass = ProcessPriorityClass.AboveNormal;
 
         if (args.Length == 0)
         {
@@ -60,7 +59,7 @@ class Program
         }
 
         logger.Info("Running for 15 minutes at most");
-        Task.Delay(3600000).Wait();
+        Task.Delay(36000000).Wait();
         logger.Info("30 minutes have elapsed, terminating application");
     }
 
@@ -224,7 +223,7 @@ class Program
         HttpClientHandler handler = new HttpClientHandler();
         handler.MaxConnectionsPerServer = 64;
         HttpClient httpClient = new HttpClient(handler);
-        httpClient.Timeout = TimeSpan.FromSeconds(60);
+        httpClient.Timeout = TimeSpan.FromSeconds(30);
         httpClient.MaxResponseContentBufferSize = 65536;
         Random random = new Random();
         string[] keys = new string[10000];
@@ -416,27 +415,13 @@ class Program
             new Route("GET|POST", "/leave", new RequestDelegate(SimulatedCrashHandler), 100),
             new Route("GET|POST", "/join", new RequestDelegate(SimulatedCrashHandler), 100)
         };
-        
+
         List<string>? nodesForRejoin = null;
 
-        dhtServer.Router.AddRoute(new Route("GET|POST", $"/sim-crash", async context => {
-            if (nodesForRejoin != null)
-            {
-                await context.Send.JSON("Already simulating a crash");
-            } else
-            {
-                nodesForRejoin = new List<string>(dhtServer.Chord.GetKnownNodes().Select(n => n.Name));
-                onCrashSimEnabled();
-                dhtServer.Logger.Debug("Crashed Chord Node simulation enabled");
-                foreach (var route in routes)
-                {
-                    dhtServer.Router.AddRoute(route);
-                }
-                dhtServer.ResetState();
-                await context.Send.JSON($"Simulating a crash: Remembering {string.Join(", ", nodesForRejoin)}");
-            }
-        }));
-        dhtServer.Router.AddRoute(new Route("GET|POST", $"/sim-recover", async context => {
+        Route? resetRoute = null;
+
+        RequestDelegate simRestoreHandler = async context =>
+        {
             if (nodesForRejoin == null)
             {
                 await context.Send.JSON("I wasn't simulating a crash. Perhaps I actually crashed?");
@@ -476,7 +461,40 @@ class Program
                 }
                 await context.Send.Ok($"Node recovered but could not rejoin the network, tried to connect via {string.Join(", ", nodesForRejoin)}.");
             }
-        }));
+        };
+
+        RequestDelegate simCrashHandler = async context =>
+        {
+            if (nodesForRejoin != null)
+            {
+                await context.Send.JSON("Already simulating a crash");
+            }
+            else
+            {
+                resetRoute = new Route("GET", "/reset", async (context) => {
+                    await dhtServer.Chord.ResetState();
+                    await simRestoreHandler(context);
+                    if (resetRoute != null)
+                    {
+                        dhtServer.Router.RemoveRoute(resetRoute);
+                    }
+                    resetRoute = null;
+                }, 100);
+                dhtServer.Router.AddRoute(resetRoute);
+                nodesForRejoin = new List<string>(dhtServer.Chord.GetKnownNodes().Select(n => n.Name));
+                onCrashSimEnabled();
+                dhtServer.Logger.Debug("Crashed Chord Node simulation enabled");
+                foreach (var route in routes)
+                {
+                    dhtServer.Router.AddRoute(route);
+                }
+                dhtServer.ResetState();
+                await context.Send.JSON($"Simulating a crash: Remembering {string.Join(", ", nodesForRejoin)}");
+            }
+        };
+
+        dhtServer.Router.AddRoute(new Route("GET|POST", $"/sim-crash", simCrashHandler));
+        dhtServer.Router.AddRoute(new Route("GET|POST", $"/sim-recover", simRestoreHandler));
 
     }
 

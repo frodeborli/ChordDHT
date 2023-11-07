@@ -6,14 +6,14 @@ namespace ChordDHT.DHT
     /**
      * A ChordDHT client implementation
      */
-    public class DHTClient : IStorageBackend
+    public class DHTCliente : IStorageBackend
     {
         private HttpClientHandler HttpClientHandler;
         protected HttpClient HttpClient;
         protected readonly string Prefix;
         public string NodeName;
 
-        public DHTClient(string primaryHostName, string prefix="/")
+        public DHTCliente(string primaryHostName, string prefix="/")
         {
             NodeName = primaryHostName;
             Prefix = prefix;

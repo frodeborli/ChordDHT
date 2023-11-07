@@ -11,6 +11,7 @@ namespace ChordDHT.ChordProtocol
     public class FingerTableEntry
     {
         [JsonPropertyName("start")]
+        [JsonConverter(typeof(Util.JsonUlongAsHex))]
         public ulong Start { get; set; }
 
         [JsonPropertyName("node")]

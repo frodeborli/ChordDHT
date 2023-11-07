@@ -7,6 +7,10 @@ using System.Threading.Tasks;
 
 namespace ChordDHT.ChordProtocol.Exceptions
 {
+
+    public class MaxHopCountReached : Exception
+    { }
+
     /// <summary>
     /// When a request will not be fulfilled
     /// </summary>

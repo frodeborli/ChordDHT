@@ -11,15 +11,11 @@ namespace ChordDHT.ChordProtocol
     public class Request<TResponse> : IRequest<TResponse>
         where TResponse : IResponse
     {
-        public Guid? Id { get; set; }
         public Node? Sender { get; set; }
-        public Node? Receiver { get; set; }
 
-        public Request(Guid? id = null, Node? sender = null, Node? receiver = null)
+        public Request(Node? sender = null)
         {
-            Id = id ?? Guid.NewGuid();
             Sender = sender;
-            Receiver = receiver;
         }
 
         public TResponse Filter(TResponse response)

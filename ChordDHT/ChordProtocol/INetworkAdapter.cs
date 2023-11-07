@@ -9,6 +9,8 @@ namespace ChordProtocol
 {
     public interface INetworkAdapter
     {
+        public void SetChord(Chord chord);
+
         /// <summary>
         /// Send an asynchronous message to another node and wait for a response. The remote
         /// node will handle this message by invoking the appropriate message handler which
@@ -17,7 +19,7 @@ namespace ChordProtocol
         /// <typeparam name="TResponse"></typeparam>
         /// <param name="message"></param>
         /// <returns></returns>
-        Task<TResponse> SendMessageAsync<TResponse>(IRequest<TResponse> message)
+        Task<TResponse> SendMessageAsync<TResponse>(Node receiver, IRequest<TResponse> message)
             where TResponse : IResponse;
         
         /// <summary>

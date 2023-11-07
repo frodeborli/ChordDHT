@@ -11,10 +11,6 @@ namespace ChordDHT.ChordProtocol
 
     public interface IMessage
     {
-        public Guid? Id { get; set; }
-        public Node? Sender { get; set; }
-        public Node? Receiver { get; set; }
-
         public string ToString();
     }
 
@@ -25,6 +21,8 @@ namespace ChordDHT.ChordProtocol
     public interface IRequest<TResponse> : IGenericRequest
         where TResponse : IResponse
     {
+        public Node? Sender { get; set; }
+
         /// <summary>
         /// Function receives the response and may validate the response.
         /// </summary>

@@ -36,19 +36,16 @@ namespace Fubber
 
             public void Log(string logLevel, string message, object? values = null, ConsoleColor? color = default)
             {
-                lock (Console.Out)
+                string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
+                string prefix = $"{timestamp} [{Prefix}] {logLevel} ";
+                var parsedMessage = ParseTemplate(message, values);
+                if (parsedMessage.Contains("\n") || prefix.Length + parsedMessage.Length >= Console.BufferWidth)
                 {
-                    string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture);
-                    string prefix = $"{timestamp} [{Prefix}] {logLevel} ";
-                    var parsedMessage = ParseTemplate(message, values);
-                    if (parsedMessage.Contains("\n") || prefix.Length + parsedMessage.Length >= Console.BufferWidth)
-                    {
-                        WriteLine($"{timestamp} [{Prefix}] {logLevel} {ParseTemplate(message, values)}", color: color);
-                    }
-                    else
-                    {
-                        WriteLine($"{timestamp} [{Prefix}] {logLevel} {ParseTemplate(message, values)}", color: color);
-                    }
+                    WriteLine($"{timestamp} [{Prefix}] {logLevel} {ParseTemplate(message, values)}", color: color);
+                }
+                else
+                {
+                    WriteLine($"{timestamp} [{Prefix}] {logLevel} {ParseTemplate(message, values)}", color: color);
                 }
             }
 
@@ -75,17 +72,17 @@ namespace Fubber
 
             public void Ok(string message, object? values = null)
             {
-                Log("OK", message, values, ConsoleColor.Green);
+                //Log("OK", message, values, ConsoleColor.Green);
             }
 
             public void Debug(string message, object? values = null)
             {
-                Log("DEBUG", message, values, ConsoleColor.Cyan);
+                // Log("DEBUG", message, values, ConsoleColor.Cyan);
             }
 
             public void Info(string message, object? values = null)
             {
-                Log("INFO", message, values, ConsoleColor.Gray);
+                //Log("INFO", message, values, ConsoleColor.Gray);
             }
 
             public void Notice(string message, object? values = null)

@@ -2,10 +2,13 @@
 using Fubber;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace ChordDHT.ChordProtocol
@@ -47,38 +50,51 @@ namespace ChordDHT.ChordProtocol
         }
         public static object? FromTypedJSON(string json)
         {
-            JsonDocument? jsonDocument = null;
-            try
+            string typeName;
+            //Match match = Regex.Match(json, "\"\\$type\":\"([^\"]+)\"");
+            //if (match.Success)
+            //{
+                //typeName = match.Groups[1].Value;
+            //}
+            //else
+            
             {
-                jsonDocument = JsonDocument.Parse(json);
-            } catch (Exception ex)
-            {
-                Dev.Error($"FAILED PARSING JSON STRING '{json}'");
-                throw ex;
+                JsonDocument? jsonDocument = null;
+                try
+                {
+                    jsonDocument = JsonDocument.Parse(json);
+                }
+                catch (Exception ex)
+                {
+                    Dev.Error($"FAILED PARSING JSON STRING '{json}'");
+                    throw ex;
+                }
+                Dictionary<string, JsonElement> jsonObject = new Dictionary<string, JsonElement>();
+
+                foreach (JsonProperty property in jsonDocument.RootElement.EnumerateObject())
+                {
+                    jsonObject.Add(property.Name, property.Value.Clone());
+                }
+
+                if (!jsonObject.ContainsKey("$type"))
+                {
+                    throw new InvalidDataException("$type annotation missing from message");
+                }
+
+                typeName = jsonObject["$type"].GetString();
+                jsonObject.Remove("$type");
             }
-            Dictionary<string, JsonElement> jsonObject = new Dictionary<string, JsonElement>();
 
-            foreach (JsonProperty property in jsonDocument.RootElement.EnumerateObject())
-            {
-                jsonObject.Add(property.Name, property.Value.Clone());
-            }
-
-            if (!jsonObject.ContainsKey("$type"))
-            {
-                throw new InvalidDataException("$type annotation missing from message");
-            }
-
-
-            var typeName = jsonObject["$type"].GetString();
             if (typeName == null)
             {
                 throw new InvalidDataException("$type annotation missing from message");
             }
-            jsonObject.Remove("$type");
 
             var type = Type.GetType(typeName);
             try
             {
+                // var strippedJson = json.Replace($",\"$type\":\"{type}\"", "");
+                // Console.WriteLine($"{json}\n{strippedJson}");
                 return JsonSerializer.Deserialize(json, type ?? typeof(object));
             }
             catch (Exception ex)
@@ -151,6 +167,47 @@ namespace ChordDHT.ChordProtocol
         }
 
         public static bool Ordered(Node floor, Node inside, Node ceiling) => Ordered(floor.Hash, inside.Hash, ceiling.Hash);
+
+        public static T WarnIfSlow<T>(long ms, string name, Func<T> func)
+        {
+            var sw = Stopwatch.StartNew();
+            T result = func();
+            sw.Stop();
+            if (sw.ElapsedMilliseconds > ms)
+            {
+                Console.WriteLine($"{name} took {sw.ElapsedMilliseconds} ms");
+            }
+            return result;
+        }
+
+        public static void WarnIfSlow(long ms, string name, Action func)
+        {
+            var sw = Stopwatch.StartNew();
+            func();
+            sw.Stop();
+            if (sw.ElapsedMilliseconds > ms)
+            {
+                Console.WriteLine($"{name} took {sw.ElapsedMilliseconds} ms");
+            }
+        }
+
+        public class JsonUlongAsHex : JsonConverter<ulong>
+        {
+            public override ulong Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+            {
+                string hexStr = reader.GetString();
+                if (hexStr != null)
+                {
+                    return ulong.Parse(hexStr, System.Globalization.NumberStyles.HexNumber);
+                }
+                throw new JsonException("Value cannot be null or non-hex format.");
+            }
+
+            public override void Write(Utf8JsonWriter writer, ulong ulongValue, JsonSerializerOptions options)
+            {
+                writer.WriteStringValue(ulongValue.ToString("X"));
+            }
+        }
 
     }
 }
